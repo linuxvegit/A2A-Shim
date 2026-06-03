@@ -264,6 +264,7 @@ eventsource-stream   = "0.2"
 futures              = "0.3"
 bytes                = "1"
 agent-client-protocol = "0.13"
+parking_lot         = "0.12"
 
 [profile.release]
 opt-level     = 3
@@ -1409,7 +1410,7 @@ pub fn try_init(opts: LoggingOptions) -> Result<(), TracingInitError> {
         LogDestination::File(p) => {
             let f = std::fs::OpenOptions::new().create(true).append(true).open(p)
                 .map_err(|e| TracingInitError::OpenFile(p.clone(), e.to_string()))?;
-            BoxedWriter::File(std::sync::Arc::new(std::sync::Mutex::new(f)))
+            BoxedWriter::File(std::sync::Arc::new(parking_lot::Mutex::new(f)))
         }
     };
     let layer = fmt::layer().with_writer(writer);
@@ -1432,13 +1433,14 @@ pub enum TracingInitError {
 }
 
 #[derive(Clone)]
-enum BoxedWriter { Stderr, File(std::sync::Arc<std::sync::Mutex<std::fs::File>>) }
+enum BoxedWriter { Stderr, File(std::sync::Arc<parking_lot::Mutex<std::fs::File>>) }
 impl<'a> fmt::MakeWriter<'a> for BoxedWriter {
     type Writer = Box<dyn std::io::Write + Send>;
     fn make_writer(&'a self) -> Self::Writer {
         match self {
             BoxedWriter::Stderr   => Box::new(std::io::stderr()),
-            BoxedWriter::File(a)  => Box::new(a.lock().expect("log mutex").try_clone().expect("clone fd")),
+            // parking_lot::Mutex has no poisoning, so .lock() returns the guard directly.
+            BoxedWriter::File(a)  => Box::new(a.lock().try_clone().expect("clone fd")),
         }
     }
 }
@@ -1510,7 +1512,7 @@ pub enum SseFrame { Event(SseEvent), Keepalive }
 
 #[derive(Clone)]
 pub struct SseSink {
-    tx: Arc<std::sync::Mutex<Option<broadcast::Sender<SseFrame>>>>,
+    tx: Arc<parking_lot::Mutex<Option<broadcast::Sender<SseFrame>>>>,
 }
 
 impl SseSink {
@@ -2115,7 +2117,7 @@ PASS. Commit `feat(client): notifications/progress heartbeat per ADR 0003`.
 
 `CancellationRegistry`:
 ```rust
-pub struct CancellationRegistry { /* Mutex<HashMap<RequestId, tokio_util::sync::CancellationToken>> */ }
+pub struct CancellationRegistry { /* parking_lot::Mutex<HashMap<RequestId, tokio_util::sync::CancellationToken>> */ }
 impl CancellationRegistry {
     pub fn register(&self, id: RequestId) -> tokio_util::sync::CancellationToken { unimplemented!() }
     pub fn cancel(&self, id: &RequestId) { unimplemented!() }
