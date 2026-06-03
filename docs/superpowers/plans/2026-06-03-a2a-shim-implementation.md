@@ -1732,6 +1732,7 @@ Implementation notes:
 - All inbound `session/request_permission` calls are routed to `permission.rs` (Task 20). Implement that as a callback on `AcpClient` so this task ships without policy knowledge.
 - All inbound `elicitation/create` calls are routed to `elicitation.rs` (Task 21) — same pattern.
 - File descriptors: stdin/stdout piped, stderr inherited (the ACP Agent's stderr should appear in the operator's terminal under WARN, but never on our stdout).
+- **Forward-compat (Phase 0 finding):** the agent may emit `SessionUpdate` variants the bundled schema crate does not yet know (e.g. `usage_update` from `claude-agent-acp` ≥ 0.40). Treat `unknown variant` deserialization errors on `session/update` as benign skew: log at `tracing::debug!` and **do not** transition the Task to `Failed`. Add a `mock-acp-agent` script in Task 22 that injects such a notification and assert the bridge keeps the Task running.
 
 PASS. Commit `feat(serve): AcpClient wrapping agent-client-protocol 0.13`.
 
@@ -2226,6 +2227,7 @@ Optional, conditional on Phase 0 V1 PASS.
 | R3 | `wiremock` SSE support insufficient for Phase 3 tests | Tasks 30, 32, 34 | Fallback to a hand-rolled `axum` server inside the test crate that serves the canned SSE bytes. Decide during Task 30 — do not let it block Phase 3. |
 | R4 | Windows signal handling differs from spec §6.5 assumptions | Task 27 | `tokio::signal::ctrl_c()` is cross-platform; SIGTERM is Unix-only. On Windows, accept only Ctrl-C and document this in `docs/operating-notes.md`. |
 | R5 | Plan reference to spec line numbers drifts after spec edits | All | Tasks cite section numbers (`§2.6`), not line numbers, in code. If a section is renumbered, this plan is amended in a single commit before next task. |
+| R6 | ACP schema version skew — agent emits newer `SessionUpdate` variants than the Rust crate knows | Tasks 17, 22, 19 | Treat `unknown variant` deserialization errors on `session/update` as benign; log at `debug`; never fail the Task. Bump `agent-client-protocol` when a release covers the new variants. |
 
 ---
 
