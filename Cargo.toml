@@ -40,6 +40,11 @@ bytes                 = "1"
 parking_lot           = "0.12"
 agent-client-protocol = "0.13"
 
+# v1.1 additions
+rusqlite                    = { version = "0.32", features = ["bundled"] }
+metrics                     = "0.24"
+metrics-exporter-prometheus = { version = "0.16", default-features = false }
+
 [profile.release]
 opt-level     = 3
 lto           = "thin"
