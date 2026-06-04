@@ -22,7 +22,6 @@ use std::time::Duration;
 
 use a2a_shim_core::config::serve_toml::{ServeConfig, ServeConfigError};
 use a2a_shim_core::logging::{try_init_idempotent, LogDestination, LogFormat, LoggingOptions};
-use agent_client_protocol::schema::SessionId;
 
 use crate::acp_client::{AcpClient, AcpClientConfig};
 use crate::http::{router, ServeState};
@@ -79,7 +78,11 @@ pub async fn run(opts: ServeRuntimeOpts) -> Result<(), RunError> {
     // ----- 3: tracing -----
     let log_opts = LoggingOptions {
         level: cfg.logging.level.clone(),
-        format: match opts.log_format.as_deref().unwrap_or(cfg.logging.format.as_str()) {
+        format: match opts
+            .log_format
+            .as_deref()
+            .unwrap_or(cfg.logging.format.as_str())
+        {
             "json" => LogFormat::Json,
             "pretty" => LogFormat::Pretty,
             _ => LogFormat::Compact,
@@ -108,8 +111,12 @@ pub async fn run(opts: ServeRuntimeOpts) -> Result<(), RunError> {
         cwd: cfg.agent.cwd.clone(),
         env: cfg.agent.env.clone(),
     };
-    let acp = AcpClient::spawn(acp_cfg).await.map_err(|e| RunError::SpawnAgent(e.to_string()))?;
-    acp.initialize().await.map_err(|e| RunError::InitAgent(e.to_string()))?;
+    let acp = AcpClient::spawn(acp_cfg)
+        .await
+        .map_err(|e| RunError::SpawnAgent(e.to_string()))?;
+    acp.initialize()
+        .await
+        .map_err(|e| RunError::InitAgent(e.to_string()))?;
 
     // ----- 6: bind + log -----
     let cfg_arc = Arc::new(cfg);
@@ -143,12 +150,15 @@ fn is_loopback_listen(listen: &str) -> bool {
 fn spawn_idle_reaper(state: ServeState, idle_secs: u64) {
     // Sweep cadence: idle_secs / 4, clamped to a sane band. Idle eviction
     // is best-effort so we do not need exact timing.
-    let sweep_period = Duration::from_secs(idle_secs / 4).clamp(
-        Duration::from_secs(30),
-        Duration::from_secs(3600),
-    );
+    let sweep_period = Duration::from_secs(idle_secs / 4)
+        .clamp(Duration::from_secs(30), Duration::from_secs(3600));
     let conversations = state.conversations.clone();
-    let acp = state.acp.clone();
+    // We hold acp as a positive marker that the reaper would issue ACP
+    // session/cancel against the wrapped agent here in v1.2. MVP does not
+    // track the session_id per evicted conversation (that information was
+    // dropped with the entry), so we only log. Holding the Arc keeps the
+    // reference structure visible for the v1.2 follow-up.
+    let _acp = state.acp.clone();
     tokio::spawn(async move {
         let mut ticker = tokio::time::interval(sweep_period);
         ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -160,23 +170,12 @@ fn spawn_idle_reaper(state: ServeState, idle_secs: u64) {
                 continue;
             }
             tracing::info!(?dropped, "idle reaper swept conversations");
-            if let Some(acp) = acp.as_ref() {
-                for conv_id in dropped {
-                    // We have only the conversation id at this point; the
-                    // session id was dropped with the entry. In MVP we
-                    // accept that ACP sessions tied to evicted
-                    // conversations become orphaned until the agent
-                    // process is restarted; v1.2 will track session ids
-                    // separately so the reaper can cancel them. For now
-                    // log the gap so operators see it.
-                    tracing::debug!(
-                        conv = %conv_id,
-                        "evicted conversation; corresponding ACP session not \
-                         explicitly cancelled (MVP limitation, v1.2)"
-                    );
-                    let _ = acp; // suppress unused-warning if branch goes away
-                    break;
-                }
+            for conv_id in &dropped {
+                tracing::debug!(
+                    conv = %conv_id,
+                    "evicted conversation; corresponding ACP session not \
+                     explicitly cancelled (MVP limitation, v1.2)"
+                );
             }
         }
     });
@@ -191,12 +190,4 @@ async fn shutdown_signal() {
         std::future::pending::<()>().await;
     }
     tracing::info!("Ctrl-C received; shutting down gracefully");
-}
-
-/// Suppress the `SessionId` import being flagged unused once the idle
-/// reaper drops its `acp` reference in MVP. Keeping this here makes the
-/// future v1.2 work obvious; remove when the reaper learns to cancel.
-#[allow(dead_code)]
-fn _unused_session_id_marker(s: SessionId) -> SessionId {
-    s
 }

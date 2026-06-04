@@ -9,7 +9,6 @@ use a2a_shim_serve::acp_client::{AcpClient, AcpClientConfig, BridgeEvent};
 use agent_client_protocol::schema::{ContentBlock, SessionUpdate, StopReason};
 use futures::StreamExt;
 use std::collections::HashMap;
-use std::path::PathBuf;
 use std::time::Duration;
 use tokio::time::timeout;
 
@@ -50,7 +49,7 @@ async fn smoke_initialize_new_prompt_happy_path() {
     client.initialize().await.expect("initialize ok");
 
     let sid = client
-        .session_new(PathBuf::from(std::env::temp_dir()))
+        .session_new(std::env::temp_dir())
         .await
         .expect("session_new ok");
     assert!(!sid.0.is_empty(), "empty session id");
@@ -68,12 +67,13 @@ async fn smoke_initialize_new_prompt_happy_path() {
     let drain = async {
         while let Some(ev) = stream.next().await {
             match ev.expect("stream item ok") {
-                BridgeEvent::Update(SessionUpdate::AgentMessageChunk(chunk)) => {
-                    if let ContentBlock::Text(t) = chunk.content {
-                        saw_chunk_text = Some(t.text);
+                BridgeEvent::Update(boxed) => {
+                    if let SessionUpdate::AgentMessageChunk(chunk) = *boxed {
+                        if let ContentBlock::Text(t) = chunk.content {
+                            saw_chunk_text = Some(t.text);
+                        }
                     }
                 }
-                BridgeEvent::Update(_) => {} // other variants are fine, just not the focus here
                 BridgeEvent::Terminal(reason) => {
                     terminal = Some(reason);
                     break;

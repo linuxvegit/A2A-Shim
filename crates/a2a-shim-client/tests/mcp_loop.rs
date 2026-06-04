@@ -95,9 +95,7 @@ async fn tools_list_returns_a2a_send() {
     });
     let out = run_with_lines(vec![init, list]).await;
     assert_eq!(out.len(), 2, "got: {out:?}");
-    let tools = out[1]["result"]["tools"]
-        .as_array()
-        .expect("tools array");
+    let tools = out[1]["result"]["tools"].as_array().expect("tools array");
     assert_eq!(tools.len(), 1);
     assert_eq!(tools[0]["name"], "a2a_send");
 }
@@ -133,7 +131,11 @@ async fn notifications_carry_no_id_and_emit_no_response() {
         "params": {}
     });
     let out = run_with_lines(vec![notif, ping]).await;
-    assert_eq!(out.len(), 1, "notification should produce no response: {out:?}");
+    assert_eq!(
+        out.len(),
+        1,
+        "notification should produce no response: {out:?}"
+    );
     assert_eq!(out[0]["id"], 42);
 }
 
@@ -145,7 +147,10 @@ async fn malformed_json_returns_parse_error_with_null_id() {
         let _ = serve_loop(server_in, server_out, ServerState::default()).await;
     });
 
-    client_in.write_all(b"{this is not valid json\n").await.unwrap();
+    client_in
+        .write_all(b"{this is not valid json\n")
+        .await
+        .unwrap();
     drop(client_in);
     let _ = server.await;
 
@@ -155,5 +160,8 @@ async fn malformed_json_returns_parse_error_with_null_id() {
     let first_line = buf.lines().next().expect("got at least one response line");
     let v: Value = serde_json::from_str(first_line).expect("response is JSON");
     assert_eq!(v["error"]["code"], -32700, "got: {v}");
-    assert!(v["id"].is_null(), "id should be null for parse errors, got: {v}");
+    assert!(
+        v["id"].is_null(),
+        "id should be null for parse errors, got: {v}"
+    );
 }

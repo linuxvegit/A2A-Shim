@@ -2,11 +2,11 @@
 //!
 //! Module surface filled out across Phase 3 tasks 28-33.
 
-pub mod tool_schema;
+pub mod call_handler;
+pub mod cancellation;
+pub mod heartbeat;
 pub mod mcp_server;
 pub mod outbound;
-pub mod heartbeat;
-pub mod cancellation;
 pub mod render;
-pub mod call_handler;
 pub mod run;
+pub mod tool_schema;

@@ -18,7 +18,10 @@ use tokio::time::timeout;
 
 fn mock_bin() -> std::path::PathBuf {
     let exe = std::env::current_exe().expect("current_exe");
-    let target_dir = exe.parent().and_then(|p| p.parent()).expect("two parents up");
+    let target_dir = exe
+        .parent()
+        .and_then(|p| p.parent())
+        .expect("two parents up");
     let mut bin = target_dir.join("mock_acp_agent");
     if cfg!(windows) {
         bin.set_extension("exe");

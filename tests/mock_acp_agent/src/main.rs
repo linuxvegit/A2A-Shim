@@ -21,7 +21,10 @@ use clap::Parser;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 #[derive(Parser, Debug, Clone)]
-#[command(name = "mock_acp_agent", about = "Scripted ACP-over-stdio mock for tests")]
+#[command(
+    name = "mock_acp_agent",
+    about = "Scripted ACP-over-stdio mock for tests"
+)]
 struct Args {
     /// Behaviour script to run.
     #[arg(long, default_value = "happy", value_parser = ["happy"])]
@@ -84,11 +87,7 @@ async fn main() -> Result<()> {
         .await
 }
 
-async fn run_script(
-    script: &str,
-    session_id: SessionId,
-    conn: ConnectionTo<Client>,
-) -> StopReason {
+async fn run_script(script: &str, session_id: SessionId, conn: ConnectionTo<Client>) -> StopReason {
     match script {
         "happy" => script_happy(session_id, conn).await,
         other => {

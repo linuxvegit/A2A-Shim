@@ -9,9 +9,7 @@ cwd = "/tmp"
 "#
     .to_string();
     if let Some(url) = advertised {
-        s.push_str(&format!(
-            "\n[server]\nadvertised_endpoint = \"{url}\"\n"
-        ));
+        s.push_str(&format!("\n[server]\nadvertised_endpoint = \"{url}\"\n"));
     }
     ServeConfig::from_toml_str(&s).unwrap()
 }

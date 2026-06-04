@@ -9,6 +9,8 @@
 //! This is the canonical proof that all three Phase boundaries
 //! (1/2/3) compose into one working system.
 
+mod common;
+
 use serde_json::{json, Value};
 use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
@@ -64,7 +66,7 @@ cwd = "{}"
 
 /// Spawn `a2a-shim serve --config <cfg>`, scan stderr for the bind line,
 /// return (child, bound_address_string).
-fn spawn_serve(cfg_path: &PathBuf) -> (std::process::Child, String) {
+fn spawn_serve(cfg_path: &std::path::Path) -> (std::process::Child, String) {
     let mut serve = Command::new(bin("a2a-shim"))
         .args(["serve", "--config", cfg_path.to_str().unwrap()])
         .stdin(Stdio::null())
@@ -176,14 +178,13 @@ async fn full_loopback_host_to_client_to_serve_to_mock_to_back() {
     let lines = match tokio::time::timeout(Duration::from_secs(30), collector).await {
         Ok(Ok(lines)) => lines,
         _ => {
-            let _ = client_child.kill();
-            let _ = serve_child.kill();
+            common::kill_tree(&mut client_child);
+            common::kill_tree(&mut serve_child);
             panic!("client stdout never EOF'd within 30s");
         }
     };
-    let _ = client_child.wait();
-    let _ = serve_child.kill();
-    let _ = serve_child.wait();
+    common::kill_tree(&mut client_child);
+    common::kill_tree(&mut serve_child);
 
     // 5) every stdout line must parse as JSON (the discipline invariant),
     //    and the tools/call response (id=3) must carry the happy answer.
@@ -203,7 +204,10 @@ async fn full_loopback_host_to_client_to_serve_to_mock_to_back() {
         .get(&3)
         .unwrap_or_else(|| panic!("missing tools/call response; got ids: {:?}", by_id.keys()));
     let result = &call_resp["result"];
-    assert_eq!(result["isError"], false, "tools/call returned error: {call_resp}");
+    assert_eq!(
+        result["isError"], false,
+        "tools/call returned error: {call_resp}"
+    );
     let text = result["content"][0]["text"].as_str().unwrap_or("");
     assert_eq!(text, "4", "expected '4', got '{text}' from {call_resp}");
     assert_eq!(

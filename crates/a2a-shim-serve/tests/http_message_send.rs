@@ -16,7 +16,10 @@ use tokio::time::timeout;
 
 fn mock_bin() -> std::path::PathBuf {
     let exe = std::env::current_exe().expect("current_exe");
-    let target_dir = exe.parent().and_then(|p| p.parent()).expect("two parents up");
+    let target_dir = exe
+        .parent()
+        .and_then(|p| p.parent())
+        .expect("two parents up");
     let mut bin = target_dir.join("mock_acp_agent");
     if cfg!(windows) {
         bin.set_extension("exe");
@@ -98,7 +101,12 @@ fn send_params(conv_id: &str, text: &str) -> Value {
 #[tokio::test]
 async fn message_send_happy_returns_completed_task() {
     let addr = start_server(cfg(8), fresh_client().await).await;
-    let resp = rpc(addr, "message/send", send_params("alice/test", "what is 2+2?")).await;
+    let resp = rpc(
+        addr,
+        "message/send",
+        send_params("alice/test", "what is 2+2?"),
+    )
+    .await;
     let task = &resp["result"];
     assert_eq!(task["status"]["state"], "completed", "got: {resp}");
     let parts = &task["artifacts"][0]["parts"];
@@ -134,7 +142,11 @@ async fn tasks_cancel_after_completed_is_not_cancelable() {
     let task_id = send["result"]["id"].as_str().unwrap().to_string();
 
     let resp = rpc(addr, "tasks/cancel", json!({ "id": task_id })).await;
-    assert_eq!(resp["error"]["code"], codes::TASK_NOT_CANCELABLE, "got: {resp}");
+    assert_eq!(
+        resp["error"]["code"],
+        codes::TASK_NOT_CANCELABLE,
+        "got: {resp}"
+    );
 }
 
 #[tokio::test]

@@ -65,11 +65,7 @@ impl Default for ServerState {
 }
 
 /// Run the stdio MCP loop until EOF on the reader.
-pub async fn serve_loop<R, W>(
-    reader: R,
-    mut writer: W,
-    state: ServerState,
-) -> std::io::Result<()>
+pub async fn serve_loop<R, W>(reader: R, mut writer: W, state: ServerState) -> std::io::Result<()>
 where
     R: AsyncRead + Unpin + Send + 'static,
     W: AsyncWrite + Unpin + Send + 'static,

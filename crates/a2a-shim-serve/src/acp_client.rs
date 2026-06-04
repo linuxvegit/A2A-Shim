@@ -37,11 +37,11 @@
 //! that does not bring down the session. We do not need special handling
 //! here; the bridge layer (Task 19) keeps the Task in Working state.
 
+use agent_client_protocol::schema::ContentBlock;
 use agent_client_protocol::schema::{
     ClientCapabilities, InitializeRequest, InitializeResponse, NewSessionRequest, PromptRequest,
     ProtocolVersion, SessionId, SessionNotification, SessionUpdate, StopReason, TextContent,
 };
-use agent_client_protocol::schema::ContentBlock;
 use agent_client_protocol::{AcpAgent, Agent, ConnectionTo, Result as AcpResult};
 use futures::stream::BoxStream;
 use parking_lot::Mutex;
@@ -56,7 +56,7 @@ use tokio::sync::{mpsc, oneshot};
 /// reason synthesized by the driver when the prompt request resolves.
 #[derive(Debug, Clone)]
 pub enum BridgeEvent {
-    Update(SessionUpdate),
+    Update(Box<SessionUpdate>),
     Terminal(StopReason),
 }
 
@@ -109,8 +109,9 @@ enum Command {
     },
 }
 
-type RouteMap =
-    Arc<Mutex<HashMap<SessionId, mpsc::UnboundedSender<std::result::Result<BridgeEvent, AcpError>>>>>;
+type RouteMap = Arc<
+    Mutex<HashMap<SessionId, mpsc::UnboundedSender<std::result::Result<BridgeEvent, AcpError>>>>,
+>;
 
 #[derive(Clone)]
 pub struct AcpClient {
@@ -166,7 +167,7 @@ impl AcpClient {
                             // the SDK swallows them upstream.)
                             let sender = routes.lock().get(&n.session_id).cloned();
                             if let Some(tx) = sender {
-                                let _ = tx.send(Ok(BridgeEvent::Update(n.update)));
+                                let _ = tx.send(Ok(BridgeEvent::Update(Box::new(n.update))));
                             }
                             Ok(())
                         }
@@ -217,7 +218,9 @@ impl AcpClient {
         let (event_tx, event_rx) = mpsc::unbounded_channel::<Result<BridgeEvent, AcpError>>();
         // Register the route BEFORE sending the Prompt command so any
         // updates the agent emits early are not dropped.
-        self.routes.lock().insert(session_id.clone(), event_tx.clone());
+        self.routes
+            .lock()
+            .insert(session_id.clone(), event_tx.clone());
 
         let send_res = self.cmd_tx.send(Command::Prompt {
             session_id: session_id.clone(),
@@ -305,9 +308,9 @@ async fn drive(
                 // we still wrap into AcpResult<()> so the public API can
                 // surface transport errors uniformly.
                 let result: AcpResult<()> = conn
-                    .send_notification(
-                        agent_client_protocol::schema::CancelNotification::new(session_id),
-                    )
+                    .send_notification(agent_client_protocol::schema::CancelNotification::new(
+                        session_id,
+                    ))
                     .map(|_| ());
                 let _ = respond.send(result);
             }

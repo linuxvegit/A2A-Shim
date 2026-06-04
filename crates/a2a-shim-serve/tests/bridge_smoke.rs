@@ -16,13 +16,15 @@ use a2a_shim_serve::bridge;
 use a2a_shim_serve::sse_sink::SseFrame;
 use a2a_shim_serve::task_registry::TaskRegistry;
 use std::collections::HashMap;
-use std::path::PathBuf;
 use std::time::Duration;
 use tokio::time::timeout;
 
 fn mock_bin() -> std::path::PathBuf {
     let exe = std::env::current_exe().expect("current_exe");
-    let target_dir = exe.parent().and_then(|p| p.parent()).expect("two parents up");
+    let target_dir = exe
+        .parent()
+        .and_then(|p| p.parent())
+        .expect("two parents up");
     let mut bin = target_dir.join("mock_acp_agent");
     if cfg!(windows) {
         bin.set_extension("exe");
@@ -42,7 +44,7 @@ async fn happy_path_chunk_then_completed() {
     let client = AcpClient::spawn(cfg).await.expect("spawn");
     client.initialize().await.expect("initialize");
     let sid = client
-        .session_new(PathBuf::from(std::env::temp_dir()))
+        .session_new(std::env::temp_dir())
         .await
         .expect("session/new");
 
@@ -78,7 +80,9 @@ async fn happy_path_chunk_then_completed() {
     );
 
     let SseFrame::Event(SseEvent::StatusUpdate {
-        status: first_status, final_: f0, ..
+        status: first_status,
+        final_: f0,
+        ..
     }) = &frames[0]
     else {
         panic!("first frame should be StatusUpdate, got {:?}", frames[0]);
@@ -100,9 +104,9 @@ async fn happy_path_chunk_then_completed() {
                     }
                 }
             }
-            SseFrame::Event(SseEvent::StatusUpdate {
-                status, final_, ..
-            }) if status.state == TaskState::Completed && *final_ => {
+            SseFrame::Event(SseEvent::StatusUpdate { status, final_, .. })
+                if status.state == TaskState::Completed && *final_ =>
+            {
                 saw_terminal_completed = true;
             }
             _ => {}

@@ -23,14 +23,13 @@ pub struct McpToolDefinition {
 pub fn tool_definition() -> McpToolDefinition {
     McpToolDefinition {
         name: "a2a_send".into(),
-        description:
-            "Send a message to a remote A2A agent and stream back its full reply. \
+        description: "Send a message to a remote A2A agent and stream back its full reply. \
              Each call is bound to a `conversation_id`; reuse the same id across \
              calls to keep state on the remote agent's side (recommended format: \
              \"<host>/<topic>\"). Returns the agent's complete reply as text plus \
              the full A2A Task object via _meta.a2aTask. Use task_id to continue \
              a Task currently waiting on input-required."
-                .into(),
+            .into(),
         input_schema: json!({
             "type": "object",
             "additionalProperties": false,

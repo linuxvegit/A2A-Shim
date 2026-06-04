@@ -11,6 +11,8 @@
 //! Run with:
 //!   `cargo test -p a2a-shim --test e2e_claude_agent_acp -- --ignored`
 
+mod common;
+
 use serde_json::{json, Value};
 use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
@@ -98,7 +100,7 @@ cwd = "{cwd}"
     (tmp, cfg_path)
 }
 
-fn spawn_serve(cfg_path: &PathBuf) -> (std::process::Child, String) {
+fn spawn_serve(cfg_path: &std::path::Path) -> (std::process::Child, String) {
     let mut serve = Command::new(bin("a2a-shim"))
         .args(["serve", "--config", cfg_path.to_str().unwrap()])
         .stdin(Stdio::null())
@@ -219,14 +221,13 @@ async fn one_turn_against_real_claude_agent_acp() {
     let lines = match tokio::time::timeout(Duration::from_secs(120), collector).await {
         Ok(Ok(lines)) => lines,
         _ => {
-            let _ = client_child.kill();
-            let _ = serve_child.kill();
+            common::kill_tree(&mut client_child);
+            common::kill_tree(&mut serve_child);
             panic!("client stdout never EOF'd within 120s (real LLM call can be slow)");
         }
     };
-    let _ = client_child.wait();
-    let _ = serve_child.kill();
-    let _ = serve_child.wait();
+    common::kill_tree(&mut client_child);
+    common::kill_tree(&mut serve_child);
 
     let mut by_id = std::collections::HashMap::<i64, Value>::new();
     for line in &lines {
@@ -240,11 +241,14 @@ async fn one_turn_against_real_claude_agent_acp() {
             by_id.insert(id, v);
         }
     }
-    let call = by_id.get(&2).unwrap_or_else(|| {
-        panic!("missing tools/call response; got ids: {:?}", by_id.keys())
-    });
+    let call = by_id
+        .get(&2)
+        .unwrap_or_else(|| panic!("missing tools/call response; got ids: {:?}", by_id.keys()));
     let result = &call["result"];
-    assert_eq!(result["isError"], false, "tools/call returned error: {call}");
+    assert_eq!(
+        result["isError"], false,
+        "tools/call returned error: {call}"
+    );
     let text = result["content"][0]["text"].as_str().unwrap_or("");
     assert!(
         !text.is_empty(),

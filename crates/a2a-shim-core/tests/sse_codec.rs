@@ -21,8 +21,13 @@ fn encode_status_update_has_final_flag() {
 
 #[test]
 fn parse_status_update() {
-    let line = r#"{"kind":"status-update","taskId":"t-x","status":{"state":"working"},"final":false}"#;
-    let SseEvent::StatusUpdate { task_id, status, final_ } = parse_sse_data_line(line).unwrap()
+    let line =
+        r#"{"kind":"status-update","taskId":"t-x","status":{"state":"working"},"final":false}"#;
+    let SseEvent::StatusUpdate {
+        task_id,
+        status,
+        final_,
+    } = parse_sse_data_line(line).unwrap()
     else {
         panic!("expected StatusUpdate");
     };

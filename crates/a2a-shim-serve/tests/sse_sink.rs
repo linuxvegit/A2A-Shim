@@ -32,7 +32,10 @@ async fn subscriber_receives_event_then_final_closes_channel() {
     assert!(matches!(
         first,
         SseFrame::Event(SseEvent::StatusUpdate {
-            status: TaskStatus { state: TaskState::Working, .. },
+            status: TaskStatus {
+                state: TaskState::Working,
+                ..
+            },
             ..
         })
     ));
@@ -45,7 +48,10 @@ async fn subscriber_receives_event_then_final_closes_channel() {
     assert!(matches!(
         second,
         SseFrame::Event(SseEvent::StatusUpdate {
-            status: TaskStatus { state: TaskState::Completed, .. },
+            status: TaskStatus {
+                state: TaskState::Completed,
+                ..
+            },
             final_: true,
             ..
         })

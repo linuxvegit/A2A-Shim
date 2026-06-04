@@ -8,7 +8,7 @@
 //!
 //! Dispatch table for `POST /`:
 //!   * message/send  -> create-or-continue a Task, run bridge synchronously,
-//!                      return the final Task snapshot. Errors map to spec § 4.6.
+//!     return the final Task snapshot. Errors map to spec § 4.6.
 //!   * message/stream -> Task 26.
 //!   * tasks/get     -> snapshot from TaskRegistry, or TASK_NOT_FOUND.
 //!   * tasks/cancel  -> registry.cancel + best-effort AcpClient::session_cancel.
@@ -16,9 +16,7 @@
 
 use a2a_shim_core::config::serve_toml::ServeConfig;
 use a2a_shim_core::error::codes;
-use a2a_shim_core::wire::envelope::{
-    JsonRpcError, JsonRpcRequest, JsonRpcResponse, ResultOrError,
-};
+use a2a_shim_core::wire::envelope::{JsonRpcError, JsonRpcRequest, JsonRpcResponse, ResultOrError};
 use a2a_shim_core::wire::methods::{SendMessageParams, TaskIdParams};
 use a2a_shim_core::wire::task::TaskId;
 use agent_client_protocol::schema::SessionId;
@@ -143,10 +141,7 @@ async fn jsonrpc_root(
     Json(resp).into_response()
 }
 
-async fn dispatch(
-    state: ServeState,
-    req: &JsonRpcRequest<Value>,
-) -> Result<Value, JsonRpcError> {
+async fn dispatch(state: ServeState, req: &JsonRpcRequest<Value>) -> Result<Value, JsonRpcError> {
     match req.method.as_str() {
         "message/send" => handle_message_send(state, req.params.clone()).await,
         "tasks/get" => handle_tasks_get(state, req.params.clone()).await,
@@ -160,10 +155,7 @@ async fn dispatch(
     }
 }
 
-async fn handle_message_send(
-    state: ServeState,
-    params: Value,
-) -> Result<Value, JsonRpcError> {
+async fn handle_message_send(state: ServeState, params: Value) -> Result<Value, JsonRpcError> {
     let parsed: SendMessageParams = serde_json::from_value(params).map_err(invalid_params)?;
     let conv_id = parsed
         .message
@@ -264,25 +256,21 @@ async fn handle_message_send(
     Ok(serde_json::to_value(snap).expect("Task serializes"))
 }
 
-async fn handle_tasks_get(
-    state: ServeState,
-    params: Value,
-) -> Result<Value, JsonRpcError> {
+async fn handle_tasks_get(state: ServeState, params: Value) -> Result<Value, JsonRpcError> {
     let parsed: TaskIdParams = serde_json::from_value(params).map_err(invalid_params)?;
-    let snap = state.tasks.snapshot(&parsed.id).await.ok_or_else(|| {
-        JsonRpcError {
+    let snap = state
+        .tasks
+        .snapshot(&parsed.id)
+        .await
+        .ok_or_else(|| JsonRpcError {
             code: codes::TASK_NOT_FOUND,
             message: format!("task not found: {}", parsed.id),
             data: None,
-        }
-    })?;
+        })?;
     Ok(serde_json::to_value(snap).expect("Task serializes"))
 }
 
-async fn handle_tasks_cancel(
-    state: ServeState,
-    params: Value,
-) -> Result<Value, JsonRpcError> {
+async fn handle_tasks_cancel(state: ServeState, params: Value) -> Result<Value, JsonRpcError> {
     let parsed: TaskIdParams = serde_json::from_value(params).map_err(invalid_params)?;
     state
         .tasks
@@ -399,7 +387,12 @@ async fn handle_message_stream(
     req: JsonRpcRequest<Value>,
 ) -> axum::response::Response {
     match prepare_prompt(state.clone(), req.params.clone()).await {
-        Ok(PromptHandle { task_id, sink, permit, stream }) => {
+        Ok(PromptHandle {
+            task_id,
+            sink,
+            permit,
+            stream,
+        }) => {
             // Spawn the bridge so it pumps SseSink while we hand the
             // subscriber receiver out as the HTTP response body. The
             // permit moves into the bridge task so it lives until the
@@ -415,8 +408,8 @@ async fn handle_message_stream(
             // Per-Task SSE keepalive (spec § 2.12) handled by axum's
             // built-in KeepAlive layer at 30s.
             let rx = sink.subscribe();
-            let body = tokio_stream::wrappers::BroadcastStream::new(rx).filter_map(
-                |item| async move {
+            let body =
+                tokio_stream::wrappers::BroadcastStream::new(rx).filter_map(|item| async move {
                     match item {
                         Ok(SseFrame::Event(ev)) => {
                             // encode_sse_event returns the full "data: …\n\n"
@@ -437,8 +430,7 @@ async fn handle_message_stream(
                         }
                         Err(_) => None, // lagged or closed -> end stream
                     }
-                },
-            );
+                });
             Sse::new(body)
                 .keep_alive(
                     KeepAlive::new()
@@ -475,10 +467,7 @@ struct PromptHandle {
     >,
 }
 
-async fn prepare_prompt(
-    state: ServeState,
-    params: Value,
-) -> Result<PromptHandle, JsonRpcError> {
+async fn prepare_prompt(state: ServeState, params: Value) -> Result<PromptHandle, JsonRpcError> {
     let parsed: SendMessageParams = serde_json::from_value(params).map_err(invalid_params)?;
     let conv_id = parsed
         .message

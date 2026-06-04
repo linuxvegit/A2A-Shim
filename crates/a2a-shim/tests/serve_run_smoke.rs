@@ -2,6 +2,8 @@
 //! at mock_acp_agent, POST one message/send, assert the response carries
 //! a completed Task with answer "4".
 
+mod common;
+
 use serde_json::{json, Value};
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
@@ -10,7 +12,10 @@ use std::time::{Duration, Instant};
 
 fn workspace_target() -> PathBuf {
     let exe = std::env::current_exe().expect("current_exe");
-    exe.parent().and_then(|p| p.parent()).expect("two parents up").to_path_buf()
+    exe.parent()
+        .and_then(|p| p.parent())
+        .expect("two parents up")
+        .to_path_buf()
 }
 
 fn shim_bin() -> PathBuf {
@@ -82,7 +87,7 @@ cwd = "{}"
         }
     }
     let addr = bound.unwrap_or_else(|| {
-        let _ = child.kill();
+        common::kill_tree(&mut child);
         panic!("serve never logged bind address; stderr was:\n{all_stderr}")
     });
 
@@ -111,8 +116,7 @@ cwd = "{}"
     .await
     .expect("parse json");
 
-    let _ = child.kill();
-    let _ = child.wait();
+    common::kill_tree(&mut child);
 
     let task = &resp["result"];
     assert_eq!(task["status"]["state"], "completed", "got: {resp}");

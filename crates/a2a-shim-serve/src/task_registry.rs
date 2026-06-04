@@ -172,16 +172,12 @@ impl TaskRegistry {
     ) -> Result<Artifact, TransitionError> {
         let mut map = self.inner.lock();
         let binding = map.get_mut(id).ok_or(TransitionError::NotFound)?;
-        if let Some(existing_idx) = artifact
-            .artifact_id
-            .as_ref()
-            .and_then(|aid| {
-                binding
-                    .artifacts
-                    .iter()
-                    .position(|a| a.artifact_id.as_deref() == Some(aid))
-            })
-        {
+        if let Some(existing_idx) = artifact.artifact_id.as_ref().and_then(|aid| {
+            binding
+                .artifacts
+                .iter()
+                .position(|a| a.artifact_id.as_deref() == Some(aid))
+        }) {
             // Merge text parts by appending the new parts to existing.
             binding.artifacts[existing_idx]
                 .parts

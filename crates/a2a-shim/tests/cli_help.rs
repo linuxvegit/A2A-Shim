@@ -6,9 +6,12 @@ fn bin() -> &'static str {
 
 #[test]
 fn help_lists_both_subcommands() {
-    let out = Command::new(bin()).arg("--help").output().expect("run binary");
+    let out = Command::new(bin())
+        .arg("--help")
+        .output()
+        .expect("run binary");
     let stdout = String::from_utf8_lossy(&out.stdout);
-    assert!(stdout.contains("serve"),  "help missing serve: {stdout}");
+    assert!(stdout.contains("serve"), "help missing serve: {stdout}");
     assert!(stdout.contains("client"), "help missing client: {stdout}");
 }
 
@@ -19,7 +22,10 @@ fn serve_help_shows_listen_flag() {
         .output()
         .expect("run binary");
     let stdout = String::from_utf8_lossy(&out.stdout);
-    assert!(stdout.contains("--listen"), "serve --help missing --listen: {stdout}");
+    assert!(
+        stdout.contains("--listen"),
+        "serve --help missing --listen: {stdout}"
+    );
 }
 
 #[test]

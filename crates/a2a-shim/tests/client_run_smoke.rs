@@ -2,6 +2,8 @@
 //! via stdin/stdout, and asserts every line on stdout is parseable JSON
 //! (i.e. no log line ever leaked onto the MCP transport).
 
+mod common;
+
 use axum::{
     response::sse::{Event, KeepAlive, Sse},
     routing::post,
@@ -146,11 +148,11 @@ async fn client_run_smoke_stdout_is_pure_jsonrpc() {
     let lines = match tokio::time::timeout(Duration::from_secs(15), collector).await {
         Ok(Ok(lines)) => lines,
         _ => {
-            let _ = child.kill();
+            common::kill_tree(&mut child);
             panic!("child stdout never EOF'd within 15s deadline");
         }
     };
-    let _ = child.wait();
+    common::kill_tree(&mut child);
 
     // EVERY non-empty stdout line must parse as JSON. That is the
     // 'stdout is MCP transport, nothing else' invariant.
@@ -181,7 +183,10 @@ async fn client_run_smoke_stdout_is_pure_jsonrpc() {
     let result = &call_resp["result"];
     assert_eq!(result["isError"], false, "got: {call_resp}");
     let text = result["content"][0]["text"].as_str().unwrap_or("");
-    assert!(text.contains("42"), "expected '42' in tool text, got '{text}'");
+    assert!(
+        text.contains("42"),
+        "expected '42' in tool text, got '{text}'"
+    );
     assert_eq!(
         result["_meta"]["a2aTask"]["status"]["state"], "completed",
         "got: {call_resp}"

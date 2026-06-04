@@ -5,7 +5,9 @@ use serde_json::json;
 fn text_message_roundtrip() {
     let m = Message {
         role: MessageRole::User,
-        parts: vec![Part::Text { text: "hello".into() }],
+        parts: vec![Part::Text {
+            text: "hello".into(),
+        }],
         metadata: None,
     };
     let back: Message = serde_json::from_str(&serde_json::to_string(&m).unwrap()).unwrap();
@@ -35,7 +37,12 @@ fn metadata_extracts_conversation_and_preserves_unknown_keys() {
 #[test]
 fn file_part_with_bytes() {
     let raw = r#"{"type":"file","name":"x.png","mimeType":"image/png","bytes":"AAAA"}"#;
-    let Part::File { name, mime_type, bytes, uri } = serde_json::from_str(raw).unwrap()
+    let Part::File {
+        name,
+        mime_type,
+        bytes,
+        uri,
+    } = serde_json::from_str(raw).unwrap()
     else {
         panic!("expected File variant");
     };

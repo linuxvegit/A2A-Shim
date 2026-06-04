@@ -9,8 +9,7 @@ fn tool_definition_has_required_fields_and_a2a_send_name() {
     let desc = v["description"].as_str().expect("description string");
     assert!(desc.to_lowercase().contains("conversation"), "got: {desc}");
     assert!(
-        desc.to_lowercase().contains("stream")
-            || desc.to_lowercase().contains("a2a"),
+        desc.to_lowercase().contains("stream") || desc.to_lowercase().contains("a2a"),
         "got: {desc}"
     );
 }

@@ -69,10 +69,7 @@ async fn illegal_transition_rejected() {
     let reg = TaskRegistry::new();
     let id = reg.create("c", "s").await;
     // Cannot jump submitted -> completed (must go via Working).
-    let err = reg
-        .transition(&id, TaskState::Completed)
-        .await
-        .unwrap_err();
+    let err = reg.transition(&id, TaskState::Completed).await.unwrap_err();
     assert!(matches!(err, TransitionError::Illegal));
 }
 

@@ -6,13 +6,19 @@ use agent_client_protocol::schema::{
 };
 
 fn opt(id: &str, kind: PermissionOptionKind) -> PermissionOption {
-    PermissionOption::new(PermissionOptionId::from(id.to_string()), id.to_string(), kind)
+    PermissionOption::new(
+        PermissionOptionId::from(id.to_string()),
+        id.to_string(),
+        kind,
+    )
 }
 
 fn req(tool_kind: ToolKind, options: Vec<PermissionOption>) -> RequestPermissionRequest {
     RequestPermissionRequest::new(
         SessionId::from("sess".to_string()),
-        ToolCall::new(ToolCallId::from("tc-1".to_string()), "test-tool").kind(tool_kind).into(),
+        ToolCall::new(ToolCallId::from("tc-1".to_string()), "test-tool")
+            .kind(tool_kind)
+            .into(),
         options,
     )
 }

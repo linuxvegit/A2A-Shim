@@ -3,12 +3,12 @@
 //!
 //! Three terminal shapes:
 //!   * `Completed`        -> content[].text = concatenated artifact texts;
-//!                            _meta.a2aTask = full Task JSON. isError=false.
-//!   * `Failed|Canceled`  -> isError=true; content[].text = human reason;
-//!                            _meta.error = NormalizedError envelope.
-//!   * `InputRequired`    -> isError=false; content[].text = last agent
-//!                            message text; _meta.{taskId, state} so the
-//!                            Host can re-invoke with `task_id` to continue.
+//!     `_meta.a2aTask` = full Task JSON. `isError=false`.
+//!   * `Failed|Canceled`  -> `isError=true`; content[].text = human reason;
+//!     `_meta.error` = NormalizedError envelope.
+//!   * `InputRequired`    -> `isError=false`; content[].text = last agent
+//!     message text; `_meta.{taskId, state}` so the
+//!     Host can re-invoke with `task_id` to continue.
 
 use a2a_shim_core::error::normalize::{ErrorKind, NormalizedError};
 use a2a_shim_core::wire::message::Part;

@@ -54,10 +54,7 @@ pub async fn run_session<S>(
 where
     S: futures::Stream<Item = Result<BridgeEvent, AcpError>> + Unpin,
 {
-    let sink = registry
-        .sink(&task_id)
-        .await
-        .ok_or(BridgeError::NotFound)?;
+    let sink = registry.sink(&task_id).await.ok_or(BridgeError::NotFound)?;
 
     let mut first_seen = false;
     let mut artifact_seen = false;
@@ -71,37 +68,39 @@ where
         }
 
         match item {
-            Ok(BridgeEvent::Update(SessionUpdate::AgentMessageChunk(chunk))) => {
-                if let ContentBlock::Text(t) = chunk.content {
-                    let part = Part::Text { text: t.text };
-                    let append = artifact_seen;
-                    artifact_seen = true;
-                    // Persist into registry history (merging by artifact_id).
-                    let artifact = Artifact {
-                        artifact_id: Some(ANSWER_ARTIFACT_ID.into()),
-                        name: Some(ANSWER_ARTIFACT_NAME.into()),
-                        parts: vec![part.clone()],
-                        metadata: None,
-                    };
-                    let _ = registry.upsert_artifact(&task_id, artifact).await?;
-                    // Publish just the delta as an artifact-update with append.
-                    sink.publish_event(SseEvent::ArtifactUpdate {
-                        task_id: task_id.clone(),
-                        artifact: Artifact {
+            Ok(BridgeEvent::Update(boxed_update)) => match *boxed_update {
+                SessionUpdate::AgentMessageChunk(chunk) => {
+                    if let ContentBlock::Text(t) = chunk.content {
+                        let part = Part::Text { text: t.text };
+                        let append = artifact_seen;
+                        artifact_seen = true;
+                        // Persist into registry history (merging by artifact_id).
+                        let artifact = Artifact {
                             artifact_id: Some(ANSWER_ARTIFACT_ID.into()),
                             name: Some(ANSWER_ARTIFACT_NAME.into()),
-                            parts: vec![part],
+                            parts: vec![part.clone()],
                             metadata: None,
-                        },
-                        append,
-                    });
+                        };
+                        let _ = registry.upsert_artifact(&task_id, artifact).await?;
+                        // Publish just the delta as an artifact-update with append.
+                        sink.publish_event(SseEvent::ArtifactUpdate {
+                            task_id: task_id.clone(),
+                            artifact: Artifact {
+                                artifact_id: Some(ANSWER_ARTIFACT_ID.into()),
+                                name: Some(ANSWER_ARTIFACT_NAME.into()),
+                                parts: vec![part],
+                                metadata: None,
+                            },
+                            append,
+                        });
+                    }
                 }
-            }
-            Ok(BridgeEvent::Update(_)) => {
-                // Tool calls, thoughts, plan updates, etc. — out of MVP
-                // scope. Tracing-only so test output stays readable.
-                tracing::debug!("ignoring non-text session update");
-            }
+                _ => {
+                    // Tool calls, thoughts, plan updates, etc. — out of MVP
+                    // scope. Tracing-only so test output stays readable.
+                    tracing::debug!("ignoring non-text session update");
+                }
+            },
             Ok(BridgeEvent::Terminal(reason)) => {
                 saw_terminal = true;
                 publish_terminal_for_stop(&task_id, &registry, &sink, reason).await?;
@@ -198,7 +197,9 @@ fn status_message_for_stop(stop: StopReason) -> Option<a2a_shim_core::wire::mess
         }
         // SDK is #[non_exhaustive]-friendly: future variants funnel through
         // Failed with a generic reason.
-        _ => Some(text_message("agent stopped for an unrecognized reason".into())),
+        _ => Some(text_message(
+            "agent stopped for an unrecognized reason".into(),
+        )),
     }
 }
 

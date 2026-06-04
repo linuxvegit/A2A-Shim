@@ -68,9 +68,7 @@ async fn happy_endpoint() -> SocketAddr {
 async fn failing_endpoint() -> SocketAddr {
     let app = Router::new().route(
         "/",
-        post(|Json(_): Json<Value>| async {
-            axum::http::StatusCode::INTERNAL_SERVER_ERROR
-        }),
+        post(|Json(_): Json<Value>| async { axum::http::StatusCode::INTERNAL_SERVER_ERROR }),
     );
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
@@ -147,7 +145,10 @@ async fn tools_call_happy_returns_text_and_a2a_task_meta() {
     let content = &call_resp["result"]["content"];
     assert!(content.is_array(), "got: {call_resp}");
     let text = content[0]["text"].as_str().unwrap_or("");
-    assert!(text.contains("Hello!"), "expected answer text, got '{text}'");
+    assert!(
+        text.contains("Hello!"),
+        "expected answer text, got '{text}'"
+    );
     let task = &call_resp["result"]["_meta"]["a2aTask"];
     assert_eq!(task["status"]["state"], "completed");
     assert_eq!(call_resp["result"]["isError"], false);
@@ -177,7 +178,9 @@ async fn tools_call_remote_500_yields_iserror_with_normalized_error() {
         .find(|v| v["id"] == 2)
         .expect("tools/call response");
     assert_eq!(resp["result"]["isError"], true, "got: {resp}");
-    let kind = resp["result"]["_meta"]["error"]["kind"].as_str().unwrap_or("");
+    let kind = resp["result"]["_meta"]["error"]["kind"]
+        .as_str()
+        .unwrap_or("");
     assert_eq!(kind, "remote_failed");
 }
 

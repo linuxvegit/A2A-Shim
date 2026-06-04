@@ -75,7 +75,9 @@ async fn spawn_fake(cfg: ServerCfg) -> SocketAddr {
                             yield Ok::<_, Infallible>(Event::default().data(s));
                         }
                     };
-                    Sse::new(stream).keep_alive(KeepAlive::default()).into_response()
+                    Sse::new(stream)
+                        .keep_alive(KeepAlive::default())
+                        .into_response()
                 }
             }
         }),
@@ -103,16 +105,9 @@ use axum::response::IntoResponse;
 async fn happy_path_yields_three_events_then_ends() {
     let addr = spawn_fake(ServerCfg::default()).await;
     let endpoint = format!("http://{addr}");
-    let mut s = stream(
-        &endpoint,
-        "alice/x",
-        "hi",
-        None,
-        None,
-        dead_default(),
-    )
-    .await
-    .expect("open stream");
+    let mut s = stream(&endpoint, "alice/x", "hi", None, None, dead_default())
+        .await
+        .expect("open stream");
     let mut got = Vec::new();
     while let Some(item) = s.next().await {
         got.push(item.expect("event ok"));
@@ -134,15 +129,7 @@ async fn http_500_maps_to_remote_failed() {
     })
     .await;
     let endpoint = format!("http://{addr}");
-    let res = stream(
-        &endpoint,
-        "alice/x",
-        "hi",
-        None,
-        None,
-        dead_default(),
-    )
-    .await;
+    let res = stream(&endpoint, "alice/x", "hi", None, None, dead_default()).await;
     match res {
         Err(OutboundError::RemoteFailed { status, .. }) => assert_eq!(status, 500),
         Err(e) => panic!("expected RemoteFailed(500), got Err({e:?})"),

@@ -23,7 +23,11 @@ async fn three_frames_in_3500ms_with_1s_interval() {
     while let Some(v) = rx.recv().await {
         frames.push(v);
     }
-    assert_eq!(frames.len(), 3, "expected 3 progress frames, got: {frames:?}");
+    assert_eq!(
+        frames.len(),
+        3,
+        "expected 3 progress frames, got: {frames:?}"
+    );
 
     // Each must be a notifications/progress with progressToken + monotone progress.
     let mut last = -1i64;
@@ -60,7 +64,10 @@ async fn progress_token_none_emits_nothing() {
     let guard = Heartbeat::start(tx, None, Duration::from_millis(100));
     tokio::time::advance(Duration::from_secs(3)).await;
     drop(guard);
-    assert!(rx.recv().await.is_none(), "expected no frames, got something");
+    assert!(
+        rx.recv().await.is_none(),
+        "expected no frames, got something"
+    );
 }
 
 #[tokio::test(start_paused = true)]
@@ -76,5 +83,8 @@ async fn drop_guard_stops_emissions() {
     }
     // After the guard drop the channel is closed; recv yields None.
     tokio::time::advance(Duration::from_secs(1)).await;
-    assert!(rx.recv().await.is_none(), "frames after drop: started with {before}");
+    assert!(
+        rx.recv().await.is_none(),
+        "frames after drop: started with {before}"
+    );
 }

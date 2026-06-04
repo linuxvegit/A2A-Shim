@@ -2,9 +2,9 @@
 //!
 //! Spec § 4. Each submodule is self-contained and round-trip tested.
 
+pub mod card;
 pub mod envelope;
 pub mod message;
-pub mod task;
 pub mod methods;
 pub mod sse;
-pub mod card;
+pub mod task;
