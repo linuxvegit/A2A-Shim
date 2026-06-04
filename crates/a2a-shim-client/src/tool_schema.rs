@@ -61,6 +61,16 @@ pub fn tool_definition() -> McpToolDefinition {
                     "type": "object",
                     "description": "Optional. Extra metadata merged into the outbound A2A Message.metadata.",
                     "additionalProperties": true
+                },
+                "caller_id": {
+                    "type": "string",
+                    "description": "Optional caller identity (v1.1 item #4). Forwarded as metadata['x-a2a-shim/caller_id']. Remote Serve Shim uses this to partition conversations across callers when [server.caller_identity].enabled."
+                },
+                "conversation_mode": {
+                    "type": "string",
+                    "enum": ["new", "continue", "auto"],
+                    "default": "auto",
+                    "description": "Optional conversation mode (v1.1 item #5). 'new' rejects if the conversation_id already exists (CONVERSATION_EXISTS). 'continue' rejects if it doesn't (CONVERSATION_LOST). 'auto' (default) silently reuses or creates."
                 }
             }
         }),

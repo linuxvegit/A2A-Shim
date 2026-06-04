@@ -52,3 +52,20 @@ fn tool_definition_roundtrips_via_serde() {
     let again = serde_json::to_value(&def).unwrap();
     assert_eq!(back, again);
 }
+
+#[test]
+fn input_schema_includes_caller_id_and_conversation_mode() {
+    // v1.1 items #4 + #5.
+    let v = serde_json::to_value(tool_definition()).unwrap();
+    let props = &v["inputSchema"]["properties"];
+    assert!(props.get("caller_id").is_some(), "missing caller_id property");
+    assert_eq!(props["caller_id"]["type"], "string");
+
+    let mode = &props["conversation_mode"];
+    assert!(!mode.is_null(), "missing conversation_mode property");
+    assert_eq!(mode["type"], "string");
+    let enums = mode["enum"].as_array().expect("enum array");
+    let names: Vec<&str> = enums.iter().filter_map(|x| x.as_str()).collect();
+    assert_eq!(names, vec!["new", "continue", "auto"]);
+    assert_eq!(mode["default"], "auto");
+}

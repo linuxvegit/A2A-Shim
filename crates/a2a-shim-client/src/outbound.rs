@@ -47,6 +47,8 @@ pub async fn stream(
     message: &str,
     task_id: Option<&str>,
     metadata: Option<&Value>,
+    caller_id: Option<&str>,
+    conversation_mode: Option<&str>,
     deadlines: OutboundDeadlines,
 ) -> Result<BoxStream<'static, Result<SseEvent, OutboundError>>, OutboundError> {
     let client = reqwest::Client::builder()
@@ -54,7 +56,14 @@ pub async fn stream(
         .build()
         .map_err(|e| OutboundError::NetworkError(e.to_string()))?;
 
-    let body = build_request_body(conversation_id, message, task_id, metadata);
+    let body = build_request_body(
+        conversation_id,
+        message,
+        task_id,
+        metadata,
+        caller_id,
+        conversation_mode,
+    );
 
     let resp = client
         .post(endpoint)
@@ -137,17 +146,25 @@ fn build_request_body(
     message: &str,
     task_id: Option<&str>,
     metadata: Option<&Value>,
+    caller_id: Option<&str>,
+    conversation_mode: Option<&str>,
 ) -> Value {
     let mut md = serde_json::Map::new();
     md.insert(
         CONVERSATION_METADATA_KEY.to_string(),
         Value::String(conversation_id.to_string()),
     );
+    if let Some(c) = caller_id {
+        md.insert(
+            "x-a2a-shim/caller_id".to_string(),
+            Value::String(c.to_string()),
+        );
+    }
     if let Some(Value::Object(m)) = metadata {
         for (k, v) in m {
             // Caller-supplied metadata never overrides our conversation
-            // key — otherwise the Host could break routing.
-            if k != CONVERSATION_METADATA_KEY {
+            // or caller key — otherwise the Host could break routing.
+            if k != CONVERSATION_METADATA_KEY && k != "x-a2a-shim/caller_id" {
                 md.insert(k.clone(), v.clone());
             }
         }
@@ -157,11 +174,17 @@ fn build_request_body(
     if let Some(id) = task_id {
         params.insert("id".into(), Value::String(id.to_string()));
     }
+    if let Some(mode) = conversation_mode {
+        params.insert(
+            "_shim_conversation_mode".into(),
+            Value::String(mode.to_string()),
+        );
+    }
     params.insert(
         "message".into(),
         json!({
             "role": "user",
-            "parts": [{ "type": "text", "text": message }],
+            "parts": [{ "text": message }],
             "metadata": md,
         }),
     );

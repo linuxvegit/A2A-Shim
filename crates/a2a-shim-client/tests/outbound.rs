@@ -108,7 +108,7 @@ use axum::response::IntoResponse;
 async fn happy_path_yields_three_events_then_ends() {
     let addr = spawn_fake(ServerCfg::default()).await;
     let endpoint = format!("http://{addr}");
-    let mut s = stream(&endpoint, "alice/x", "hi", None, None, dead_default())
+    let mut s = stream(&endpoint, "alice/x", "hi", None, None, None, None, dead_default())
         .await
         .expect("open stream");
     let mut got = Vec::new();
@@ -132,7 +132,7 @@ async fn http_500_maps_to_remote_failed() {
     })
     .await;
     let endpoint = format!("http://{addr}");
-    let res = stream(&endpoint, "alice/x", "hi", None, None, dead_default()).await;
+    let res = stream(&endpoint, "alice/x", "hi", None, None, None, None, dead_default()).await;
     match res {
         Err(OutboundError::RemoteFailed { status, .. }) => assert_eq!(status, 500),
         Err(e) => panic!("expected RemoteFailed(500), got Err({e:?})"),
@@ -154,7 +154,7 @@ async fn idle_timeout_yields_remote_timeout() {
         stream_idle: Duration::from_millis(100),
         hard_ceiling: Duration::from_secs(60),
     };
-    let mut s = stream(&endpoint, "alice/x", "hi", None, None, deadlines)
+    let mut s = stream(&endpoint, "alice/x", "hi", None, None, None, None, deadlines)
         .await
         .expect("open stream ok");
     // The very first item should be a RemoteTimeout error and then the
@@ -175,7 +175,7 @@ async fn missing_endpoint_yields_network_error() {
         stream_idle: Duration::from_secs(10),
         hard_ceiling: Duration::from_secs(60),
     };
-    let res = stream(endpoint, "alice/x", "hi", None, None, deadlines).await;
+    let res = stream(endpoint, "alice/x", "hi", None, None, None, None, deadlines).await;
     let msg = match &res {
         Err(OutboundError::NetworkError(_)) => return,
         Err(e) => format!("Err({e:?})"),

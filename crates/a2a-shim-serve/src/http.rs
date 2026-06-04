@@ -225,11 +225,66 @@ pub(crate) fn partition_key(caller_id: Option<&str>, conversation_id: &str) -> S
     }
 }
 
+/// Apply v1.1 item #5 conversation_mode semantics. Reads
+/// `params._shim_conversation_mode` (set by Client Shim outbound when
+/// the operator passed `conversation_mode`). Returns:
+///   - Ok(()) when mode is auto/missing OR mode is satisfied
+///   - Err(CONVERSATION_EXISTS) when mode='new' but the key is present
+///   - Err(CONVERSATION_LOST) when mode='continue' but the key is absent
+///   - Err(INVALID_PARAMS) when mode is set to an unknown string
+pub(crate) async fn check_conversation_mode(
+    state: &ServeState,
+    params: &Value,
+    conv_key: &str,
+) -> Result<(), JsonRpcError> {
+    let mode = params
+        .get("_shim_conversation_mode")
+        .and_then(|v| v.as_str())
+        .unwrap_or("auto");
+    match mode {
+        "auto" => Ok(()),
+        "new" => {
+            if state.conversations.get(conv_key).await.is_some() {
+                Err(JsonRpcError {
+                    code: codes::CONVERSATION_EXISTS,
+                    message: format!(
+                        "conversation '{}' already exists (mode=new)",
+                        conv_key
+                    ),
+                    data: None,
+                })
+            } else {
+                Ok(())
+            }
+        }
+        "continue" => {
+            if state.conversations.get(conv_key).await.is_none() {
+                Err(JsonRpcError {
+                    code: codes::CONVERSATION_LOST,
+                    message: format!(
+                        "conversation '{}' does not exist (mode=continue)",
+                        conv_key
+                    ),
+                    data: None,
+                })
+            } else {
+                Ok(())
+            }
+        }
+        other => Err(JsonRpcError {
+            code: codes::INVALID_PARAMS,
+            message: format!("unknown conversation_mode: {other}"),
+            data: None,
+        }),
+    }
+}
+
 async fn handle_message_send(
     state: ServeState,
     params: Value,
     header_caller: Option<String>,
 ) -> Result<Value, JsonRpcError> {
+    let raw_params = params.clone();
     let parsed: SendMessageParams = serde_json::from_value(params).map_err(invalid_params)?;
     let conv_id = parsed
         .message
@@ -258,6 +313,7 @@ async fn handle_message_send(
         metadata_caller,
     );
     let conv_key = partition_key(caller_id.as_deref(), &conv_id);
+    check_conversation_mode(&state, &raw_params, &conv_key).await?;
 
     let acp = state.require_acp()?;
     let cwd = state.cfg.agent.cwd.clone();
@@ -581,6 +637,7 @@ async fn prepare_prompt(
     params: Value,
     header_caller: Option<String>,
 ) -> Result<PromptHandle, JsonRpcError> {
+    let raw_params = params.clone();
     let parsed: SendMessageParams = serde_json::from_value(params).map_err(invalid_params)?;
     let conv_id = parsed
         .message
@@ -607,7 +664,7 @@ async fn prepare_prompt(
         metadata_caller,
     );
     let conv_key = partition_key(caller_id.as_deref(), &conv_id);
-
+    check_conversation_mode(&state, &raw_params, &conv_key).await?;
     let acp = state.require_acp()?;
     let cwd = state.cfg.agent.cwd.clone();
 

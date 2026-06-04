@@ -25,7 +25,7 @@ use crate::render::{
 };
 
 /// Arguments to the `a2a_send` tool, parsed from `params.arguments`.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, serde::Serialize)]
 pub struct A2aSendArgs {
     pub endpoint: String,
     pub conversation_id: String,
@@ -36,6 +36,13 @@ pub struct A2aSendArgs {
     pub timeout_secs: Option<u64>,
     #[serde(default)]
     pub metadata: Option<Value>,
+    /// v1.1 item #4: optional caller identity. Forwarded as
+    /// metadata['x-a2a-shim/caller_id'] to the Serve Shim.
+    #[serde(default)]
+    pub caller_id: Option<String>,
+    /// v1.1 item #5: conversation mode. None / missing = "auto".
+    #[serde(default)]
+    pub conversation_mode: Option<String>,
 }
 
 /// Per-call runtime context that the MCP loop hands to the handler.
@@ -104,6 +111,8 @@ pub async fn call_a2a_send(args_raw: Value, cx: CallContext) -> Value {
         &args.message,
         args.task_id.as_deref(),
         args.metadata.as_ref(),
+        args.caller_id.as_deref(),
+        args.conversation_mode.as_deref(),
         deadlines,
     )
     .await
