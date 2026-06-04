@@ -1,0 +1,12 @@
+[package]
+name         = "mock_acp_agent"
+version      = { workspace = true }
+edition      = { workspace = true }
+rust-version = { workspace = true }
+license      = { workspace = true }
+description  = "Scripted ACP-over-stdio mock used by a2a-shim-serve integration tests. Not shipped."
+publish      = false
+
+[[bin]]
+name = "mock_acp_agent"
+path = "src/main.rs"

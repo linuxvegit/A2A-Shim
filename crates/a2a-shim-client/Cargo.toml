@@ -1,0 +1,22 @@
+[package]
+name         = "a2a-shim-client"
+version      = { workspace = true }
+edition      = { workspace = true }
+rust-version = { workspace = true }
+license      = { workspace = true }
+description  = "Stdio MCP server exposing the a2a_send tool that calls remote A2A endpoints."
+
+[dependencies]
+a2a-shim-core      = { path = "../a2a-shim-core" }
+reqwest            = { workspace = true }
+eventsource-stream = { workspace = true }
+tokio              = { workspace = true }
+tokio-util         = { workspace = true }
+serde              = { workspace = true }
+serde_json         = { workspace = true }
+thiserror          = { workspace = true }
+tracing            = { workspace = true }
+uuid               = { workspace = true }
+futures            = { workspace = true }
+bytes              = { workspace = true }
+parking_lot        = { workspace = true }

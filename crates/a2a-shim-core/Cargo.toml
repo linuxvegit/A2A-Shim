@@ -1,0 +1,7 @@
+[package]
+name         = "a2a-shim-core"
+version      = { workspace = true }
+edition      = { workspace = true }
+rust-version = { workspace = true }
+license      = { workspace = true }
+description  = "Shared wire types, error codes, timeouts, config, and logging init for the A2A-Shim project."

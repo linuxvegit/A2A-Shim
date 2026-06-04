@@ -1,0 +1,21 @@
+[package]
+name         = "a2a-shim"
+version      = { workspace = true }
+edition      = { workspace = true }
+rust-version = { workspace = true }
+license      = { workspace = true }
+description  = "Bidirectional shim between ACP agents and Google A2A protocol."
+
+[[bin]]
+name = "a2a-shim"
+path = "src/main.rs"
+
+[dependencies]
+a2a-shim-core   = { path = "../a2a-shim-core" }
+a2a-shim-serve  = { path = "../a2a-shim-serve" }
+a2a-shim-client = { path = "../a2a-shim-client" }
+clap            = { workspace = true }
+tokio           = { workspace = true }
+anyhow          = { workspace = true }
+tracing         = { workspace = true }
+miette          = { workspace = true }
