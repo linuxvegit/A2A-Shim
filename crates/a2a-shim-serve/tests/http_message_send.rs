@@ -101,7 +101,11 @@ fn send_params(conv_id: &str, text: &str) -> Value {
 #[tokio::test]
 async fn message_send_happy_returns_completed_task() {
     let addr = start_server(cfg(8), fresh_client().await).await;
-    let resp = rpc(addr, "SendMessage", send_params("alice/test", "what is 2+2?"))
+    let resp = rpc(
+        addr,
+        "SendMessage",
+        send_params("alice/test", "what is 2+2?"),
+    )
     .await;
     let task = &resp["result"];
     assert_eq!(task["status"]["state"], "completed", "got: {resp}");

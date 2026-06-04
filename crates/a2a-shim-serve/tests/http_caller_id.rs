@@ -98,7 +98,9 @@ fn send_body(conv: &str, extra_meta: Option<(&str, &str)>) -> Value {
 }
 
 async fn rpc_with_caller_header(addr: SocketAddr, body: Value, header: Option<&str>) -> Value {
-    let req = reqwest::Client::new().post(format!("http://{addr}/")).json(&body);
+    let req = reqwest::Client::new()
+        .post(format!("http://{addr}/"))
+        .json(&body);
     let req = match header {
         Some(h) => req.header("X-A2A-Caller-Id", h),
         None => req,

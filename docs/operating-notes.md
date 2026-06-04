@@ -120,6 +120,145 @@ caller's intent).
   Serve Shim (under your loopback-or-tunnel boundary, not exposed) — not in
   the Client Shim.
 
+## v1.1 deltas (Phase 1-6 of v1.1)
+
+### A2A v1.0 wire (ADR 0005)
+
+v1.1 ships a hard cutover to A2A protocol v1.0.1. JSON-RPC method names
+are PascalCase (`SendMessage`, `SendStreamingMessage`, `GetTask`,
+`CancelTask`, `ListTasks`, `SubscribeToTask`, `CreateTaskPushNotificationConfig`,
+etc.). `Part` discrimination is member-presence (no `type` tag).
+SSE events use wrapped form (`{"statusUpdate": {...}}`). v0.x-conformant
+clients no longer interoperate; pin to v0.1.x if you need legacy.
+
+### Persistence (ADR 0007)
+
+`[server.persistence]` is on by default and writes a SQLite file at
+`./a2a-shim.db` (override via `path`). On startup the shim batch-loads
+every persisted conversation via ACP `session/load` (8 concurrent);
+sessions the agent no longer recognizes are deleted from the DB.
+
+Operational notes:
+- The DB file is per-Serve-Shim. Two shims pointing at the same path
+  would corrupt each other.
+- Backup is `cp a2a-shim.db a2a-shim.db.bak` while the shim is stopped
+  (online backup not yet supported).
+- Schema migrations are versioned via `_schema_version`; today only
+  v1 exists. Future versions will upgrade in-place.
+- To start fresh: stop shim, `rm a2a-shim.db`, restart. All
+  conversations and tasks are lost; agent sessions on the ACP side
+  become orphaned until the agent process is restarted.
+- v1.1 limitation: write amplification on hot conversations is
+  unmitigated. If you see high `last_used_at` write rates in iostat,
+  set `[server.persistence].enabled = false` until v1.1.1.
+
+### Push notifications (ADR 0008)
+
+`[server.push_notifications]` is on by default. AgentCard now
+advertises `pushNotifications: true`. Four JSON-RPC methods are
+supported:
+
+- `CreateTaskPushNotificationConfig` — register a webhook for a Task.
+  Body shape: `{taskId, pushNotificationConfig: {url, token?, authentication?, tenant?}}`.
+- `GetTaskPushNotificationConfig {configId}` — fetch one.
+- `ListTaskPushNotificationConfigs {taskId}` — list for a Task.
+- `DeleteTaskPushNotificationConfig {configId}` — remove one.
+
+Delivery: when a Task reaches a terminal state (`Completed | Failed |
+Canceled`), the shim POSTs a `{statusUpdate: {...}}` payload to each
+registered config. Content-Type is `application/a2a+json`. Each request
+includes an `Idempotency-Key: task-<taskId>-config-<configId>` header
+so receivers can dedupe.
+
+Retry policy: 3 attempts with 1s/3s/9s exponential backoff for 5xx /
+408 / 429 / connection failures. 4xx other than 408/429 is a permanent
+failure: drop immediately. After 10 consecutive permanent failures the
+config is auto-deleted (DELETE row + warn log).
+
+Auth: pass `authentication: {scheme, credentials}` in the config. The
+webhook receives `Authorization: <scheme> <credentials>`. The deprecated
+`token` field is mapped to `Bearer <token>`.
+
+Egress firewall: the Serve Shim now makes outbound HTTP calls to
+webhook URLs. Allowlist those destinations explicitly when the shim
+runs behind a strict egress filter.
+
+### caller_id partitioning (spec § 5)
+
+`[server.caller_identity].enabled = false` by default (preserves v0.1.0
+behavior). When enabled, conversations are partitioned by
+`(caller_id, conversation_id)`. Three sources, priority order:
+1. `X-A2A-Caller-Id` request header (when `trust_header = true`).
+2. `x-a2a-shim/caller_id` metadata key in `SendMessage.params.message.metadata`.
+3. `[server.caller_identity].default_caller_id` (default `"anonymous"`).
+
+**Trust model:** when `trust_header = true`, your reverse proxy MUST
+authenticate the caller and set the header. The shim does NOT validate
+the header against any identity. Set `trust_header = false` if the shim
+is exposed directly to untrusted callers.
+
+### conversation_mode (spec item #5)
+
+The Client Shim's `a2a_send` tool gains a `conversation_mode` argument:
+- `auto` (default): silently create or reuse — same as v0.1.0.
+- `new`: reject if the conversation_id already exists
+  (`CONVERSATION_EXISTS` = -32012).
+- `continue`: reject if it doesn't exist (`CONVERSATION_LOST` = -32013).
+
+v1.1 limitation: when the Serve Shim returns these errors, the Client
+Shim's outbound layer sees them as a JSON-RPC envelope on what it
+expected to be an SSE response, surfacing them as `ProtocolError`
+rather than the matching `ErrorKind`. v1.2 will translate explicitly.
+
+### Multi-modal Parts (ADR 0006)
+
+Both directions now translate non-text content between A2A `Part` and
+ACP `ContentBlock`. Mapping table is in ADR 0006. Unknown variants
+are warn-and-drop (the rest of the message continues normally).
+
+Capability gating: inbound Image/Audio/EmbeddedResource Parts are
+dropped when the agent's `initialize` response did NOT advertise the
+matching capability. v1.1's `PartCaps::default()` is all-off pending
+the cap-cache wiring; v1.2 will pull caps from the live initialize
+response.
+
+### `--max-part-bytes` (10 MiB default, ADR 0006)
+
+Cap on individual A2A `Part` payload size, enforced before
+`a2a_to_acp` translation. Oversize returns `INVALID_PARAMS` with a
+message naming the offending index. Configure via
+`[server].max_part_bytes`.
+
+### Prometheus `/metrics` (spec § 7)
+
+`[server.metrics].enabled = true` by default. `GET /metrics` returns
+text/plain `version=0.0.4` Prometheus format. Five metrics today:
+- `a2a_shim_messages_total{method, status}` — counter.
+- `a2a_shim_conversations_active` — gauge (wiring deferred to v1.1.1).
+- `a2a_shim_tasks_active{state}` — gauge (wiring deferred).
+- `a2a_shim_task_duration_seconds{terminal_state}` — histogram
+  (recorder available; observation hook deferred).
+- `a2a_shim_push_deliveries_total{status}` — counter.
+
+`record_message` fires on every JSON-RPC call. `record_push_delivery`
+fires per worker outcome. Cardinality is bounded — no
+per-conversation or per-task-id labels.
+
+### `_shim/conversation/reset`
+
+Custom JSON-RPC method (note `_shim/` prefix, flagging non-standard
+origin). Params: `{conversation_id, caller_id?}`. Returns
+`{cleared: bool, cancelled_task_ids: [...]}`. Side effects:
+1. Cancels every non-terminal Task whose `context_id` matches the
+   resolved partition key.
+2. Sends ACP `session/cancel` (best-effort, logs on failure).
+3. DELETEs the conversation row from persistence (CASCADE removes
+   tasks + push configs).
+4. Removes the entry from in-memory ConversationMap.
+
+Idempotent: reset of an unknown id returns `cleared = false` with no
+side effects.
+
 ## Known v0.1.0 limitations
 
 | Area | Limit | Spec follow-up |

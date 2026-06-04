@@ -50,8 +50,7 @@ fn audio_block_to_file_part_with_audio_media_type() {
 #[test]
 fn resource_link_block_to_file_part_with_url() {
     let blocks = vec![ContentBlock::ResourceLink(
-        ResourceLink::new("doc.pdf", "https://example.com/x.pdf")
-            .mime_type("application/pdf"),
+        ResourceLink::new("doc.pdf", "https://example.com/x.pdf").mime_type("application/pdf"),
     )];
     let parts = acp_to_a2a(&blocks);
     assert_eq!(parts.len(), 1);

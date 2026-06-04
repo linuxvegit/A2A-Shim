@@ -24,7 +24,9 @@ fn no_media_caps() -> PartCaps {
 
 #[test]
 fn text_part_to_text_contentblock() {
-    let parts = vec![Part::Text { text: "hello".into() }];
+    let parts = vec![Part::Text {
+        text: "hello".into(),
+    }];
     let blocks = a2a_to_acp(&parts, &all_caps());
     assert_eq!(blocks.len(), 1);
     assert!(matches!(&blocks[0], ContentBlock::Text(t) if t.text == "hello"));
@@ -40,7 +42,9 @@ fn image_file_part_to_image_contentblock() {
     }];
     let blocks = a2a_to_acp(&parts, &all_caps());
     assert_eq!(blocks.len(), 1);
-    assert!(matches!(&blocks[0], ContentBlock::Image(img) if img.data == "AAAA" && img.mime_type == "image/png"));
+    assert!(
+        matches!(&blocks[0], ContentBlock::Image(img) if img.data == "AAAA" && img.mime_type == "image/png")
+    );
 }
 
 #[test]
@@ -151,7 +155,9 @@ fn resource_link_passes_through_without_embedded_context_cap() {
 
 #[test]
 fn text_unaffected_by_caps() {
-    let parts = vec![Part::Text { text: "always works".into() }];
+    let parts = vec![Part::Text {
+        text: "always works".into(),
+    }];
     let blocks = a2a_to_acp(&parts, &no_media_caps());
     assert_eq!(blocks.len(), 1);
 }
@@ -166,7 +172,9 @@ fn mixed_parts_drop_only_gated_variants() {
             media_type: "image/png".into(),
             filename: None,
         },
-        Part::Text { text: "also ok".into() },
+        Part::Text {
+            text: "also ok".into(),
+        },
     ];
     let blocks = a2a_to_acp(&parts, &no_media_caps());
     assert_eq!(blocks.len(), 2);

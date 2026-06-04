@@ -196,7 +196,11 @@ impl TaskRegistry {
     /// turning incoming notifications into history/artifact updates.
     /// Returns None if the task is gone (e.g. swept).
     pub async fn acp_session_id(&self, id: &TaskId) -> Option<String> {
-        self.inner.lock().bindings.get(id).map(|b| b.acp_session_id.clone())
+        self.inner
+            .lock()
+            .bindings
+            .get(id)
+            .map(|b| b.acp_session_id.clone())
     }
 
     /// Append a Message to the task's history. Used by the bridge to
@@ -244,11 +248,7 @@ impl TaskRegistry {
     ///
     /// Returns `(tasks, next_cursor)` where `next_cursor` is `Some(id)`
     /// of the last returned task if there are more, else `None`.
-    pub async fn list(
-        &self,
-        after: Option<&TaskId>,
-        limit: usize,
-    ) -> (Vec<Task>, Option<TaskId>) {
+    pub async fn list(&self, after: Option<&TaskId>, limit: usize) -> (Vec<Task>, Option<TaskId>) {
         let effective_limit = if limit == 0 { 50 } else { limit.min(1000) };
         let inner = self.inner.lock();
         let start_idx = match after {

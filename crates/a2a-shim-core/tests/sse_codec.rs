@@ -14,7 +14,11 @@ use serde_json::{json, Value};
 fn encode_status_update_wrapped_form() {
     let ev = SseEvent::status(
         TaskId::from("t-x"),
-        TaskStatus { state: TaskState::Completed, message: None, timestamp: None },
+        TaskStatus {
+            state: TaskState::Completed,
+            message: None,
+            timestamp: None,
+        },
         true,
     );
     let s = encode_sse_event(&ev);
@@ -68,15 +72,20 @@ fn artifact_update_wraps_inner_v1_part() {
         },
         true,
     );
-    let v: Value = serde_json::from_str(&encode_sse_event(&ev).trim_start_matches("data: ").trim()).unwrap();
+    let v: Value =
+        serde_json::from_str(encode_sse_event(&ev).trim_start_matches("data: ").trim()).unwrap();
     // The inner artifact's first part is just {"text": "4"} now.
-    assert_eq!(v["artifactUpdate"]["artifact"]["parts"][0], json!({"text": "4"}));
+    assert_eq!(
+        v["artifactUpdate"]["artifact"]["parts"][0],
+        json!({"text": "4"})
+    );
 }
 
 #[test]
 fn legacy_kind_form_no_longer_parses() {
     // ADR 0005 hard cutover: legacy v0.x kind-tagged form must not bind.
-    let legacy = r#"{"kind":"status-update","taskId":"t-x","status":{"state":"working"},"final":false}"#;
+    let legacy =
+        r#"{"kind":"status-update","taskId":"t-x","status":{"state":"working"},"final":false}"#;
     let parsed = parse_sse_data_line(legacy);
     assert!(
         parsed.is_err(),

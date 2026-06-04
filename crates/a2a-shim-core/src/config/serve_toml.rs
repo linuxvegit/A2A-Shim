@@ -70,7 +70,6 @@ impl Default for ServerConfig {
     }
 }
 
-
 /// SQLite-backed persistence settings (ADR 0007 / spec § 4 item #3).
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct PersistenceConfig {

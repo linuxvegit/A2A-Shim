@@ -121,10 +121,7 @@ impl ServeState {
     }
 
     /// Wire the Prometheus handle so the /metrics route can render.
-    pub fn set_metrics_handle(
-        &mut self,
-        h: metrics_exporter_prometheus::PrometheusHandle,
-    ) {
+    pub fn set_metrics_handle(&mut self, h: metrics_exporter_prometheus::PrometheusHandle) {
         self.metrics_handle = Some(h);
     }
 
@@ -236,14 +233,10 @@ async fn dispatch(
         "GetTask" => handle_tasks_get(state, req.params.clone()).await,
         "CancelTask" => handle_tasks_cancel(state, req.params.clone()).await,
         "ListTasks" => handle_list_tasks(state, req.params.clone()).await,
-        "CreateTaskPushNotificationConfig" => {
-            handle_push_create(state, req.params.clone()).await
-        }
+        "CreateTaskPushNotificationConfig" => handle_push_create(state, req.params.clone()).await,
         "GetTaskPushNotificationConfig" => handle_push_get(state, req.params.clone()).await,
         "ListTaskPushNotificationConfigs" => handle_push_list(state, req.params.clone()).await,
-        "DeleteTaskPushNotificationConfig" => {
-            handle_push_delete(state, req.params.clone()).await
-        }
+        "DeleteTaskPushNotificationConfig" => handle_push_delete(state, req.params.clone()).await,
         "_shim/conversation/reset" => {
             handle_conversation_reset(state, req.params.clone(), header_caller).await
         }
@@ -307,10 +300,7 @@ pub(crate) async fn check_conversation_mode(
             if state.conversations.get(conv_key).await.is_some() {
                 Err(JsonRpcError {
                     code: codes::CONVERSATION_EXISTS,
-                    message: format!(
-                        "conversation '{}' already exists (mode=new)",
-                        conv_key
-                    ),
+                    message: format!("conversation '{}' already exists (mode=new)", conv_key),
                     data: None,
                 })
             } else {
@@ -321,10 +311,7 @@ pub(crate) async fn check_conversation_mode(
             if state.conversations.get(conv_key).await.is_none() {
                 Err(JsonRpcError {
                     code: codes::CONVERSATION_LOST,
-                    message: format!(
-                        "conversation '{}' does not exist (mode=continue)",
-                        conv_key
-                    ),
+                    message: format!("conversation '{}' does not exist (mode=continue)", conv_key),
                     data: None,
                 })
             } else {
@@ -810,10 +797,9 @@ async fn prepare_prompt(
 /// Errors:
 ///   * unknown task id     -> TASK_NOT_FOUND  (-32001)
 ///   * terminal task       -> still returns SSE; the response body
-///                            EOFs immediately because publish_final
-///                            already closed the broadcast channel.
-///                            Operators wanting the cached snapshot
-///                            use GetTask instead.
+///     EOFs immediately because publish_final already closed the
+///     broadcast channel. Operators wanting the cached snapshot use
+///     GetTask instead.
 async fn handle_subscribe_to_task(
     state: ServeState,
     req: JsonRpcRequest<Value>,
@@ -933,13 +919,14 @@ fn require_push_enabled(state: &ServeState) -> Result<(), JsonRpcError> {
 
 async fn handle_push_create(state: ServeState, params: Value) -> Result<Value, JsonRpcError> {
     require_push_enabled(&state)?;
-    let parsed: PushConfigParams =
-        serde_json::from_value(params).map_err(invalid_params)?;
-    let cfg = parsed.push_notification_config.ok_or_else(|| JsonRpcError {
-        code: codes::INVALID_PUSH_NOTIFICATION_CONFIG,
-        message: "missing pushNotificationConfig".into(),
-        data: None,
-    })?;
+    let parsed: PushConfigParams = serde_json::from_value(params).map_err(invalid_params)?;
+    let cfg = parsed
+        .push_notification_config
+        .ok_or_else(|| JsonRpcError {
+            code: codes::INVALID_PUSH_NOTIFICATION_CONFIG,
+            message: "missing pushNotificationConfig".into(),
+            data: None,
+        })?;
     let task_id = cfg
         .task_id
         .clone()
@@ -984,8 +971,7 @@ async fn handle_push_create(state: ServeState, params: Value) -> Result<Value, J
 
 async fn handle_push_get(state: ServeState, params: Value) -> Result<Value, JsonRpcError> {
     require_push_enabled(&state)?;
-    let parsed: PushConfigParams =
-        serde_json::from_value(params).map_err(invalid_params)?;
+    let parsed: PushConfigParams = serde_json::from_value(params).map_err(invalid_params)?;
     let cid = parsed.config_id.ok_or_else(|| JsonRpcError {
         code: codes::INVALID_PARAMS,
         message: "missing configId".into(),
@@ -1010,8 +996,7 @@ async fn handle_push_get(state: ServeState, params: Value) -> Result<Value, Json
 
 async fn handle_push_list(state: ServeState, params: Value) -> Result<Value, JsonRpcError> {
     require_push_enabled(&state)?;
-    let parsed: PushConfigParams =
-        serde_json::from_value(params).map_err(invalid_params)?;
+    let parsed: PushConfigParams = serde_json::from_value(params).map_err(invalid_params)?;
     let task_id = parsed.task_id.ok_or_else(|| JsonRpcError {
         code: codes::INVALID_PARAMS,
         message: "missing taskId".into(),
@@ -1025,8 +1010,7 @@ async fn handle_push_list(state: ServeState, params: Value) -> Result<Value, Jso
 
 async fn handle_push_delete(state: ServeState, params: Value) -> Result<Value, JsonRpcError> {
     require_push_enabled(&state)?;
-    let parsed: PushConfigParams =
-        serde_json::from_value(params).map_err(invalid_params)?;
+    let parsed: PushConfigParams = serde_json::from_value(params).map_err(invalid_params)?;
     let cid = parsed.config_id.ok_or_else(|| JsonRpcError {
         code: codes::INVALID_PARAMS,
         message: "missing configId".into(),
@@ -1083,11 +1067,8 @@ pub(crate) fn enqueue_push_for_terminal(
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis() as i64)
         .unwrap_or(0);
-    let payload = crate::push_delivery::build_status_update_payload(
-        snap.id.as_str(),
-        state_str,
-        now_ms,
-    );
+    let payload =
+        crate::push_delivery::build_status_update_payload(snap.id.as_str(), state_str, now_ms);
     for cfg in cfgs {
         let job = crate::push_delivery::DeliveryJob {
             config: cfg,
@@ -1113,8 +1094,7 @@ async fn handle_conversation_reset(
     params: Value,
     header_caller: Option<String>,
 ) -> Result<Value, JsonRpcError> {
-    let parsed: ConversationResetParams =
-        serde_json::from_value(params).map_err(invalid_params)?;
+    let parsed: ConversationResetParams = serde_json::from_value(params).map_err(invalid_params)?;
     let caller = resolve_caller_id(
         &state.cfg.server.caller_identity,
         header_caller.as_deref(),
@@ -1129,10 +1109,11 @@ async fn handle_conversation_reset(
     let (tasks, _) = state.tasks.list(None, 1000).await;
     let mut cancelled: Vec<String> = Vec::new();
     for t in tasks {
-        if t.context_id.as_deref() == Some(conv_key.as_str()) && !t.status.state.is_terminal() {
-            if state.tasks.cancel(&t.id).await.is_ok() {
-                cancelled.push(t.id.as_str().to_string());
-            }
+        if t.context_id.as_deref() == Some(conv_key.as_str())
+            && !t.status.state.is_terminal()
+            && state.tasks.cancel(&t.id).await.is_ok()
+        {
+            cancelled.push(t.id.as_str().to_string());
         }
     }
 

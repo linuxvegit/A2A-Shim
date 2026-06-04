@@ -128,7 +128,10 @@ async fn mode_auto_default_creates_and_reuses() {
 async fn mode_new_on_fresh_id_succeeds() {
     let addr = start_server().await;
     let resp = rpc(addr, send_body("alice/brand-new", Some("new"))).await;
-    assert_eq!(resp["result"]["status"]["state"], "completed", "got: {resp}");
+    assert_eq!(
+        resp["result"]["status"]["state"], "completed",
+        "got: {resp}"
+    );
 }
 
 #[tokio::test]

@@ -8,17 +8,16 @@
 //!   * `streamy`    — 5 small chunks 50ms apart for G2 streaming tests.
 //!   * `multimodal` — one Text + one Image ContentBlock then EndTurn.
 //!   * `resumable`  — same as happy on first prompt; accepts LoadSession
-//!                    against any previously-issued session id; on
-//!                    subsequent prompts to a loaded session, replies "ok".
+//!     against any previously-issued session id; on subsequent prompts
+//!     to a loaded session, replies "ok".
 //!
 //! Usage: `mock_acp_agent --script <name>` (default: happy).
 
 use agent_client_protocol::schema::{
     AgentCapabilities, ContentBlock, ContentChunk, ImageContent, InitializeRequest,
     InitializeResponse, LoadSessionRequest, LoadSessionResponse, NewSessionRequest,
-    NewSessionResponse, PromptRequest, PromptResponse, ResumeSessionRequest,
-    ResumeSessionResponse, SessionId, SessionNotification, SessionUpdate, StopReason,
-    TextContent,
+    NewSessionResponse, PromptRequest, PromptResponse, ResumeSessionRequest, ResumeSessionResponse,
+    SessionId, SessionNotification, SessionUpdate, StopReason, TextContent,
 };
 use agent_client_protocol::{Agent, Client, ConnectionTo, Dispatch, Result, Stdio};
 use clap::Parser;
@@ -153,10 +152,7 @@ async fn script_multimodal(session_id: SessionId, conn: ConnectionTo<Client>) ->
     let text_chunk = SessionUpdate::AgentMessageChunk(ContentChunk::new(ContentBlock::Text(
         TextContent::new("Here is an image: "),
     )));
-    let _ = conn.send_notification(SessionNotification::new(
-        session_id.clone(),
-        text_chunk,
-    ));
+    let _ = conn.send_notification(SessionNotification::new(session_id.clone(), text_chunk));
     let image_chunk = SessionUpdate::AgentMessageChunk(ContentChunk::new(ContentBlock::Image(
         ImageContent::new(TINY_PNG_B64, "image/png"),
     )));

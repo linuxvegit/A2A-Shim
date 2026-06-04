@@ -79,8 +79,7 @@ async fn happy_path_chunk_then_completed() {
         frames.len()
     );
 
-    let SseFrame::Event(SseEvent::StatusUpdate { inner: first_inner }) = &frames[0]
-    else {
+    let SseFrame::Event(SseEvent::StatusUpdate { inner: first_inner }) = &frames[0] else {
         panic!("first frame should be StatusUpdate, got {:?}", frames[0]);
     };
     assert_eq!(first_inner.status.state, TaskState::Working);

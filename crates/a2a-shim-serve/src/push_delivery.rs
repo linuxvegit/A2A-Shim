@@ -125,11 +125,7 @@ impl PushConfigRegistry {
     }
 
     pub fn list_for_task(&self, task_id: &str) -> Vec<PushNotificationConfig> {
-        self.inner
-            .lock()
-            .get(task_id)
-            .cloned()
-            .unwrap_or_default()
+        self.inner.lock().get(task_id).cloned().unwrap_or_default()
     }
 
     /// Increment the failure counter for `config_id`. Returns true if
@@ -205,8 +201,7 @@ pub async fn deliver(
                     return DeliveryOutcome::Dropped;
                 }
                 let wait = Duration::from_secs(
-                    policy.backoff_base_secs
-                        * policy.backoff_factor.pow((attempt - 1) as u32),
+                    policy.backoff_base_secs * policy.backoff_factor.pow((attempt - 1) as u32),
                 );
                 tracing::debug!(
                     config = %job.config.config_id,
@@ -333,11 +328,7 @@ pub fn start_worker_pool(
 /// Build the StreamResponse-shaped payload for a terminal Task transition
 /// (ADR 0008 + A2A v1.0.1 § 3.5.3). Caller passes the wire-form status
 /// payload — we wrap it.
-pub fn build_status_update_payload(
-    task_id: &str,
-    state: &str,
-    timestamp_ms: i64,
-) -> Value {
+pub fn build_status_update_payload(task_id: &str, state: &str, timestamp_ms: i64) -> Value {
     json!({
         "statusUpdate": {
             "taskId": task_id,
@@ -374,7 +365,11 @@ fn civil_from_days(z: i64) -> (i64, u8, u8) {
     let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
     let mp = (5 * doy + 2) / 153;
     let d = (doy - (153 * mp + 2) / 5 + 1) as u8;
-    let m = if mp < 10 { (mp + 3) as u8 } else { (mp - 9) as u8 };
+    let m = if mp < 10 {
+        (mp + 3) as u8
+    } else {
+        (mp - 9) as u8
+    };
     let y = if m <= 2 { y + 1 } else { y };
     (y, m, d)
 }

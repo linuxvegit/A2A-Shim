@@ -16,11 +16,7 @@ fn fresh_persistence() -> Persistence {
 #[tokio::test]
 async fn conversation_map_persists_on_create() {
     let p = fresh_persistence();
-    let map = ConversationMap::with_persistence(
-        8,
-        Duration::from_secs(3600),
-        Some(p.clone()),
-    );
+    let map = ConversationMap::with_persistence(8, Duration::from_secs(3600), Some(p.clone()));
     let (conv, created) = map
         .get_or_create_with_meta("alice/x", "/tmp", "anonymous", || async {
             Ok::<_, ()>("sess-1".into())
@@ -41,11 +37,9 @@ async fn conversation_map_persists_on_create() {
 async fn conversation_map_persists_delete_on_sweep() {
     let p = fresh_persistence();
     let map = ConversationMap::with_persistence(8, Duration::from_secs(0), Some(p.clone()));
-    map.get_or_create_with_meta("c", "/tmp", "anon", || async {
-        Ok::<_, ()>("s".into())
-    })
-    .await
-    .unwrap();
+    map.get_or_create_with_meta("c", "/tmp", "anon", || async { Ok::<_, ()>("s".into()) })
+        .await
+        .unwrap();
     // Wait so last_used_at < now - window (window is 0).
     tokio::time::sleep(Duration::from_millis(10)).await;
     let dropped = map.sweep_idle().await;
@@ -66,7 +60,9 @@ async fn task_registry_persists_create_and_transitions() {
     let reg = TaskRegistry::with_persistence(Some(p.clone()));
     let task_id = reg.create("c", "s").await;
     reg.transition(&task_id, TaskState::Working).await.unwrap();
-    reg.transition(&task_id, TaskState::Completed).await.unwrap();
+    reg.transition(&task_id, TaskState::Completed)
+        .await
+        .unwrap();
 
     let rows = p.list_tasks_for_conversation("c").await.unwrap();
     assert_eq!(rows.len(), 1);

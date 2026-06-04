@@ -76,9 +76,7 @@ async fn multimodal_script_emits_text_and_image_parts() {
     let mut saw_text = false;
     let mut saw_image = false;
     for f in &frames {
-        if let SseFrame::Event(a2a_shim_core::wire::sse::SseEvent::ArtifactUpdate { inner }) =
-            f
-        {
+        if let SseFrame::Event(a2a_shim_core::wire::sse::SseEvent::ArtifactUpdate { inner }) = f {
             for p in &inner.artifact.parts {
                 match p {
                     Part::Text { text } if text.contains("image") => saw_text = true,

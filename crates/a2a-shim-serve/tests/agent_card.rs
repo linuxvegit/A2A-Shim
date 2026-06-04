@@ -33,7 +33,10 @@ fn capabilities_match_spec_2_10() {
     let c = cfg(None);
     let card = build_agent_card(&c, "127.0.0.1:7001");
     assert!(card.capabilities.streaming);
-    assert!(card.capabilities.push_notifications, "v1.1: push notifications default ON");
+    assert!(
+        card.capabilities.push_notifications,
+        "v1.1: push notifications default ON"
+    );
     assert!(card.capabilities.state_transition_history);
 }
 

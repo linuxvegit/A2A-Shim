@@ -166,12 +166,8 @@ pub async fn run(opts: ServeRuntimeOpts) -> Result<(), RunError> {
             ))
             .build()
             .map_err(|e| RunError::Persistence(format!("reqwest builder: {e}")))?;
-        let tx = crate::push_delivery::start_worker_pool(
-            8,
-            http,
-            state.push_registry.clone(),
-            policy,
-        );
+        let tx =
+            crate::push_delivery::start_worker_pool(8, http, state.push_registry.clone(), policy);
         state.set_push_tx(tx);
         tracing::info!("push delivery: worker pool started (8 workers)");
     } else {
@@ -189,12 +185,8 @@ pub async fn run(opts: ServeRuntimeOpts) -> Result<(), RunError> {
 
     // ----- 6b: recovery — restore persisted conversations BEFORE accepting traffic -----
     if let (Some(p), Some(client)) = (persistence.as_ref(), state.acp.as_ref()) {
-        let report = crate::persistence::recovery::bootstrap(
-            p,
-            &state.conversations,
-            client.as_ref(),
-        )
-        .await;
+        let report =
+            crate::persistence::recovery::bootstrap(p, &state.conversations, client.as_ref()).await;
         if report.restored > 0 || report.dropped > 0 {
             tracing::info!(
                 restored = report.restored,

@@ -15,8 +15,8 @@
 
 use a2a_shim_core::wire::message::Part;
 use agent_client_protocol::schema::{
-    AudioContent, BlobResourceContents, ContentBlock, EmbeddedResource,
-    EmbeddedResourceResource, ImageContent, ResourceLink, TextContent, TextResourceContents,
+    AudioContent, BlobResourceContents, ContentBlock, EmbeddedResource, EmbeddedResourceResource,
+    ImageContent, ResourceLink, TextContent, TextResourceContents,
 };
 
 /// Subset of ACP `PromptCapabilities` relevant to part translation. The
@@ -118,11 +118,8 @@ fn translate_one_inbound(p: &Part, caps: &PartCaps) -> Option<ContentBlock> {
             ..
         } => {
             // ResourceLink is always available (per ADR 0006) — no cap gating.
-            let link = ResourceLink::new(
-                derive_link_name(url),
-                url.clone(),
-            )
-            .mime_type(media_type.clone());
+            let link =
+                ResourceLink::new(derive_link_name(url), url.clone()).mime_type(media_type.clone());
             Some(ContentBlock::ResourceLink(link))
         }
         Part::File {
@@ -192,30 +189,32 @@ fn translate_one_outbound(b: &ContentBlock) -> Option<Part> {
                 .unwrap_or_else(|| "application/octet-stream".into()),
             filename: Some(rl.name.clone()),
         }),
-        ContentBlock::Resource(r) => match &r.resource {
-            EmbeddedResourceResource::BlobResourceContents(blob) => Some(Part::File {
-                raw: Some(blob.blob.clone()),
-                url: None,
-                media_type: blob
-                    .mime_type
-                    .clone()
-                    .unwrap_or_else(|| "application/octet-stream".into()),
-                filename: None,
-            }),
-            EmbeddedResourceResource::TextResourceContents(tr) => {
-                let media_type = tr.mime_type.clone().unwrap_or_else(|| "text/plain".into());
-                // If the text parses as JSON and media is application/json,
-                // preserve as Data with parsed value; else wrap as Data
-                // with the raw text under a JSON string.
-                let data: serde_json::Value = serde_json::from_str(&tr.text)
-                    .unwrap_or_else(|_| serde_json::Value::String(tr.text.clone()));
-                Some(Part::Data { data, media_type })
+        ContentBlock::Resource(r) => {
+            match &r.resource {
+                EmbeddedResourceResource::BlobResourceContents(blob) => Some(Part::File {
+                    raw: Some(blob.blob.clone()),
+                    url: None,
+                    media_type: blob
+                        .mime_type
+                        .clone()
+                        .unwrap_or_else(|| "application/octet-stream".into()),
+                    filename: None,
+                }),
+                EmbeddedResourceResource::TextResourceContents(tr) => {
+                    let media_type = tr.mime_type.clone().unwrap_or_else(|| "text/plain".into());
+                    // If the text parses as JSON and media is application/json,
+                    // preserve as Data with parsed value; else wrap as Data
+                    // with the raw text under a JSON string.
+                    let data: serde_json::Value = serde_json::from_str(&tr.text)
+                        .unwrap_or_else(|_| serde_json::Value::String(tr.text.clone()));
+                    Some(Part::Data { data, media_type })
+                }
+                _ => {
+                    tracing::warn!("dropping outbound EmbeddedResource: unknown EmbeddedResourceResource variant");
+                    None
+                }
             }
-            _ => {
-                tracing::warn!("dropping outbound EmbeddedResource: unknown EmbeddedResourceResource variant");
-                None
-            }
-        },
+        }
         other => {
             tracing::warn!(?other, "dropping outbound ContentBlock: unknown variant");
             None

@@ -34,9 +34,7 @@ pub fn install_global_recorder() -> PrometheusHandle {
                 .unwrap_or_else(|_| {
                     // Last resort: a no-op handle that always renders empty.
                     // Should be unreachable in practice.
-                    PrometheusBuilder::new()
-                        .build_recorder()
-                        .handle()
+                    PrometheusBuilder::new().build_recorder().handle()
                 })
         }
     }

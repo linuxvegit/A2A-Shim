@@ -8,7 +8,7 @@
 use a2a_shim_core::config::serve_toml::ServeConfig;
 use a2a_shim_serve::acp_client::{AcpClient, AcpClientConfig};
 use a2a_shim_serve::http;
-use a2a_shim_serve::push_delivery::{RetryPolicy, start_worker_pool};
+use a2a_shim_serve::push_delivery::{start_worker_pool, RetryPolicy};
 use axum::{routing::post, Json, Router};
 use parking_lot::Mutex;
 use serde_json::{json, Value};
@@ -157,7 +157,12 @@ async fn create_list_get_delete_roundtrip() {
     assert!(!cfg_id.is_empty());
 
     // List
-    let list = rpc(addr, "ListTaskPushNotificationConfigs", json!({"taskId":"t-x"})).await;
+    let list = rpc(
+        addr,
+        "ListTaskPushNotificationConfigs",
+        json!({"taskId":"t-x"}),
+    )
+    .await;
     let arr = list["result"]["configs"].as_array().expect("configs");
     assert_eq!(arr.len(), 1);
     assert_eq!(arr[0]["id"], cfg_id);
@@ -182,13 +187,18 @@ async fn create_list_get_delete_roundtrip() {
     assert_eq!(del["result"]["deleted"], true);
 
     // List again -> empty
-    let list2 = rpc(addr, "ListTaskPushNotificationConfigs", json!({"taskId":"t-x"})).await;
+    let list2 = rpc(
+        addr,
+        "ListTaskPushNotificationConfigs",
+        json!({"taskId":"t-x"}),
+    )
+    .await;
     assert!(list2["result"]["configs"].as_array().unwrap().is_empty());
 }
 
 #[tokio::test]
 async fn terminal_transition_fires_webhook() {
-    let (webhook_addr, captured) = spawn_webhook().await;
+    let (webhook_addr, _captured) = spawn_webhook().await;
     let (addr, _state) = start_server(CFG_ON).await;
 
     // SendMessage to create Task — happy script terminates immediately.
@@ -271,7 +281,6 @@ async fn terminal_transition_fires_webhook() {
 
     // Wait for any background deliveries from the existing setups.
     tokio::time::sleep(Duration::from_millis(500)).await;
-    let _ = captured.0.lock();
     // No assertion on count — this test primarily validates the
     // worker pool wiring + the methods. A full terminal->webhook
     // round-trip is exercised by the e2e_v1_1_loopback test (Task 40).

@@ -8,11 +8,16 @@ use serde_json::{json, Value};
 
 #[test]
 fn text_part_wire_has_no_type_tag() {
-    let p = Part::Text { text: "hello".into() };
+    let p = Part::Text {
+        text: "hello".into(),
+    };
     let v = serde_json::to_value(&p).unwrap();
     assert_eq!(v, json!({"text": "hello"}), "got: {v}");
     // Critically: no `type` key.
-    assert!(v.get("type").is_none(), "Text Part must NOT emit 'type' tag in v1.0");
+    assert!(
+        v.get("type").is_none(),
+        "Text Part must NOT emit 'type' tag in v1.0"
+    );
 }
 
 #[test]
@@ -25,7 +30,12 @@ fn text_part_roundtrip() {
 #[test]
 fn file_part_with_raw_and_mediatype() {
     let raw = r#"{"raw":"AAAA","mediaType":"image/png","filename":"x.png"}"#;
-    let Part::File { raw: r, url, media_type, filename } = serde_json::from_str(raw).unwrap()
+    let Part::File {
+        raw: r,
+        url,
+        media_type,
+        filename,
+    } = serde_json::from_str(raw).unwrap()
     else {
         panic!("expected File variant");
     };
@@ -38,7 +48,12 @@ fn file_part_with_raw_and_mediatype() {
 #[test]
 fn file_part_with_url() {
     let raw = r#"{"url":"https://example.com/x.png","mediaType":"image/png"}"#;
-    let Part::File { raw: r, url, media_type, .. } = serde_json::from_str(raw).unwrap()
+    let Part::File {
+        raw: r,
+        url,
+        media_type,
+        ..
+    } = serde_json::from_str(raw).unwrap()
     else {
         panic!("expected File variant");
     };

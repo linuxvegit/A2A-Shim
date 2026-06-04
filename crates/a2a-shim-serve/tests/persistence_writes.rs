@@ -61,7 +61,9 @@ async fn insert_conversation_persists_row() {
 #[tokio::test]
 async fn touch_conversation_updates_last_used() {
     let p = fresh_persistence();
-    p.insert_conversation("c", "s", "/tmp", "anon").await.unwrap();
+    p.insert_conversation("c", "s", "/tmp", "anon")
+        .await
+        .unwrap();
     let before = p.list_conversations().await.unwrap()[0].last_used_at;
     // sleep a millisecond so the timestamp changes
     tokio::time::sleep(std::time::Duration::from_millis(2)).await;
@@ -73,7 +75,9 @@ async fn touch_conversation_updates_last_used() {
 #[tokio::test]
 async fn delete_conversation_cascades_to_tasks() {
     let p = fresh_persistence();
-    p.insert_conversation("c", "s", "/tmp", "anon").await.unwrap();
+    p.insert_conversation("c", "s", "/tmp", "anon")
+        .await
+        .unwrap();
     p.record_task("t-1", "c", "submitted").await.unwrap();
     p.record_task("t-2", "c", "submitted").await.unwrap();
     assert_eq!(p.list_tasks_for_conversation("c").await.unwrap().len(), 2);
@@ -86,7 +90,9 @@ async fn delete_conversation_cascades_to_tasks() {
 #[tokio::test]
 async fn record_task_updates_state() {
     let p = fresh_persistence();
-    p.insert_conversation("c", "s", "/tmp", "anon").await.unwrap();
+    p.insert_conversation("c", "s", "/tmp", "anon")
+        .await
+        .unwrap();
     p.record_task("t-1", "c", "submitted").await.unwrap();
     p.record_task("t-1", "c", "working").await.unwrap();
     p.record_task("t-1", "c", "completed").await.unwrap();
@@ -102,7 +108,9 @@ async fn record_task_updates_state() {
 #[tokio::test]
 async fn record_task_non_terminal_leaves_terminal_at_null() {
     let p = fresh_persistence();
-    p.insert_conversation("c", "s", "/tmp", "anon").await.unwrap();
+    p.insert_conversation("c", "s", "/tmp", "anon")
+        .await
+        .unwrap();
     p.record_task("t-1", "c", "working").await.unwrap();
     let rows = p.list_tasks_for_conversation("c").await.unwrap();
     assert!(rows[0].terminal_at.is_none());

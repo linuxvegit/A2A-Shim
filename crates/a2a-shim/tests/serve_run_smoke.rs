@@ -56,7 +56,11 @@ command = "{cmd}"
 args = ["--script", "happy"]
 cwd = "{cwd}"
 "#,
-        db = tmp.join("a2a-shim.db").display().to_string().replace('\\', "/"),
+        db = tmp
+            .join("a2a-shim.db")
+            .display()
+            .to_string()
+            .replace('\\', "/"),
         cmd = mock.display().to_string().replace('\\', "/"),
         cwd = tmp.display().to_string().replace('\\', "/")
     );

@@ -260,11 +260,7 @@ impl AcpClient {
     /// session id after restart. The agent replays prior turns as
     /// session/update notifications immediately; subscribers see them
     /// through the route_map if registered before this call returns.
-    pub async fn session_load(
-        &self,
-        session_id: &SessionId,
-        cwd: PathBuf,
-    ) -> Result<(), AcpError> {
+    pub async fn session_load(&self, session_id: &SessionId, cwd: PathBuf) -> Result<(), AcpError> {
         let (tx, rx) = oneshot::channel();
         self.cmd_tx
             .send(Command::LoadSession {

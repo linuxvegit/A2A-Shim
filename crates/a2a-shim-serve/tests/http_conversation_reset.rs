@@ -73,7 +73,12 @@ async fn rpc(addr: SocketAddr, method: &str, params: Value) -> Value {
 #[tokio::test]
 async fn reset_unknown_conv_returns_cleared_false() {
     let addr = start_server().await;
-    let resp = rpc(addr, "_shim/conversation/reset", json!({"conversation_id": "nope"})).await;
+    let resp = rpc(
+        addr,
+        "_shim/conversation/reset",
+        json!({"conversation_id": "nope"}),
+    )
+    .await;
     assert_eq!(resp["result"]["cleared"], false, "got: {resp}");
     let cancelled = resp["result"]["cancelled_task_ids"]
         .as_array()
@@ -98,12 +103,15 @@ async fn reset_after_send_clears_conv_and_cancels_no_terminal_tasks() {
     )
     .await;
     // Reset.
-    let r = rpc(addr, "_shim/conversation/reset", json!({"conversation_id": "alice/r1"})).await;
+    let r = rpc(
+        addr,
+        "_shim/conversation/reset",
+        json!({"conversation_id": "alice/r1"}),
+    )
+    .await;
     assert_eq!(r["result"]["cleared"], true, "got: {r}");
     // Task already completed → not cancelable; cancelled list is empty.
-    let cancelled = r["result"]["cancelled_task_ids"]
-        .as_array()
-        .unwrap();
+    let cancelled = r["result"]["cancelled_task_ids"].as_array().unwrap();
     assert!(cancelled.is_empty(), "got: {r}");
 
     // Subsequent send under the same id should create a NEW conversation

@@ -24,9 +24,11 @@ pub fn ensure_current(conn: &Connection) -> rusqlite::Result<()> {
         [],
     )?;
     let current: i64 = conn
-        .query_row("SELECT COALESCE(MAX(version), 0) FROM _schema_version", [], |r| {
-            r.get(0)
-        })
+        .query_row(
+            "SELECT COALESCE(MAX(version), 0) FROM _schema_version",
+            [],
+            |r| r.get(0),
+        )
         .unwrap_or(0);
 
     if current < 1 {

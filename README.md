@@ -100,22 +100,50 @@ The `a2a_send` tool now appears in the Host's tool catalog. Example call:
 
 Reuse the same `conversation_id` across calls to keep the remote agent's session warm.
 
-## Limits (v0.1.0)
+## What's in v1.1
 
-- **One in-flight prompt per `conversation_id`.** Overlapping calls on the same conversation return JSON-RPC `-32010` (`CONVERSATION_BUSY`).
+- **A2A protocol v1.0 wire** (PascalCase methods, member-presence `Part`,
+  wrapped SSE events). v0.x clients incompatible — pin v0.1.x for legacy.
+- **Multi-modal Parts** end-to-end via `translate::a2a_to_acp` /
+  `acp_to_a2a` (text, image, audio, embedded resource, link).
+- **G2 streaming** — `notifications/progress` carries accumulated agent
+  text so Host UIs see live output, not just liveness ticks.
+- **SQLite persistence** (default on, `./a2a-shim.db`). Conversations
+  survive Serve Shim restart via ACP `session/load` batch recovery (8
+  concurrent).
+- **caller_id partitioning** (opt-in). Three sources: `X-A2A-Caller-Id`
+  header, message metadata, config default. Trust model documented.
+- **conversation_mode** arg (`new` / `continue` / `auto`) with
+  `CONVERSATION_EXISTS` / `CONVERSATION_LOST` error codes.
+- **Push notifications** — 4 JSON-RPC methods + 8-worker pool with
+  3-attempt exponential-backoff retry. AgentCard advertises
+  `pushNotifications: true`.
+- **Prometheus `/metrics`** route mounted on the existing axum router.
+- **`_shim/conversation/reset`** extension method.
+- **`SubscribeToTask`** + **`ListTasks`** (new A2A v1.0 methods).
+
+Full v1.1 details: [`docs/operating-notes.md` § v1.1 deltas](docs/operating-notes.md).
+
+## Limits
+
+- **One in-flight prompt per `(caller_id, conversation_id)`.** Overlapping calls return JSON-RPC `-32010` (`CONVERSATION_BUSY`).
 - **`auto_approve` is the default** permission strategy. The Serve Shim approves every `session/request_permission` the wrapped agent sends. ADR 0001 disables `fs` and `terminal` client capabilities so the agent has very little it *can* request — but if you re-enable them, audit the strategy first.
 - **Loopback-only by default.** `listen = "127.0.0.1:7001"`. Binding non-loopback works and logs a `WARN`, but the shim does NOT own auth or TLS — front it with a port-forward, SSH tunnel, or HTTPS terminator (see [`docs/operating-notes.md`](docs/operating-notes.md)).
 - **No `passthrough` permission strategy.** Reserved for v1.2.
 - **No idle ACP session cancellation.** When the idle reaper evicts a conversation, the underlying ACP session keeps running until the agent process is restarted. v1.2 will track session ids per conversation so the reaper can issue `session/cancel`.
 - **Windows shutdown signal: Ctrl-C only.** No portable SIGTERM equivalent.
+- **v1.1: PartCaps default off.** Inbound Image/Audio/EmbeddedResource Parts are dropped unless `[server] max_part_bytes` and the agent's cap-cache wiring (v1.2) allow them through. ResourceLink and Text always pass.
+- **v1.1: ConversationLost surfaces as ProtocolError on Client Shim.** Serve correctly returns the typed JSON-RPC error; Client outbound doesn't translate it. v1.2 fix.
+- **v1.1: TaskRegistry write amplification.** `last_used_at` writes through on every cache hit. v1.1.1 will add 1-in-N sampling.
 
 ## References
 
-- **Spec:** [`docs/superpowers/specs/2026-06-03-a2a-shim-design.md`](docs/superpowers/specs/2026-06-03-a2a-shim-design.md)
+- **v0.1.0 spec:** [`docs/superpowers/specs/2026-06-03-a2a-shim-design.md`](docs/superpowers/specs/2026-06-03-a2a-shim-design.md)
+- **v1.1 spec:** [`docs/superpowers/specs/2026-06-04-a2a-shim-v1.1.md`](docs/superpowers/specs/2026-06-04-a2a-shim-v1.1.md)
 - **Glossary:** [`CONTEXT.md`](CONTEXT.md)
-- **ADRs:** [`docs/adr/`](docs/adr/)
+- **ADRs:** [`docs/adr/`](docs/adr/) (v0.1.0: 0001-0004; v1.1: 0005-0008)
 - **Operating notes:** [`docs/operating-notes.md`](docs/operating-notes.md)
-- **Phase 0 reality check:** [`verify/REPORT.md`](verify/REPORT.md)
+- **Phase 0 reality checks:** [`verify/REPORT.md`](verify/REPORT.md) (v0.1.0), [`verify-v1.1/REPORT.md`](verify-v1.1/REPORT.md) (v1.1)
 
 ## Development
 

@@ -101,10 +101,7 @@ async fn append_text_shows_in_next_message() {
     tokio::task::yield_now().await;
 
     let frame = rx.recv().await.expect("got frame");
-    assert_eq!(
-        frame["params"]["message"], "Hello world",
-        "got: {frame}"
-    );
+    assert_eq!(frame["params"]["message"], "Hello world", "got: {frame}");
     drop(guard);
 }
 
@@ -122,7 +119,12 @@ async fn append_text_tail_capped_to_200_chars() {
 
     let frame = rx.recv().await.expect("got frame");
     let msg = frame["params"]["message"].as_str().expect("message string");
-    assert_eq!(msg.len(), 200, "expected tail of 200 chars, got {} chars: {msg}", msg.len());
+    assert_eq!(
+        msg.len(),
+        200,
+        "expected tail of 200 chars, got {} chars: {msg}",
+        msg.len()
+    );
     assert!(msg.chars().all(|c| c == 'x'));
     drop(guard);
 }

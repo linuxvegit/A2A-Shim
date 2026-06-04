@@ -152,26 +152,28 @@ impl Persistence {
 
     pub async fn list_conversations(&self) -> Result<Vec<ConversationRow>, PersistenceError> {
         let conn = Arc::clone(&self.conn);
-        let rows = tokio::task::spawn_blocking(move || -> Result<Vec<ConversationRow>, PersistenceError> {
-            let c = conn.lock();
-            let mut stmt = c.prepare(
+        let rows = tokio::task::spawn_blocking(
+            move || -> Result<Vec<ConversationRow>, PersistenceError> {
+                let c = conn.lock();
+                let mut stmt = c.prepare(
                 "SELECT conversation_id, acp_session_id, cwd, caller_id, created_at, last_used_at
                  FROM conversations ORDER BY created_at ASC",
             )?;
-            let mapped = stmt
-                .query_map([], |r| {
-                    Ok(ConversationRow {
-                        conversation_id: r.get(0)?,
-                        acp_session_id: r.get(1)?,
-                        cwd: r.get(2)?,
-                        caller_id: r.get(3)?,
-                        created_at: r.get(4)?,
-                        last_used_at: r.get(5)?,
-                    })
-                })?
-                .collect::<rusqlite::Result<Vec<_>>>()?;
-            Ok(mapped)
-        })
+                let mapped = stmt
+                    .query_map([], |r| {
+                        Ok(ConversationRow {
+                            conversation_id: r.get(0)?,
+                            acp_session_id: r.get(1)?,
+                            cwd: r.get(2)?,
+                            caller_id: r.get(3)?,
+                            created_at: r.get(4)?,
+                            last_used_at: r.get(5)?,
+                        })
+                    })?
+                    .collect::<rusqlite::Result<Vec<_>>>()?;
+                Ok(mapped)
+            },
+        )
         .await
         .map_err(|_| PersistenceError::DriverGone)??;
         Ok(rows)
@@ -220,36 +222,34 @@ impl Persistence {
     ) -> Result<Vec<TaskRow>, PersistenceError> {
         let conn = Arc::clone(&self.conn);
         let cid = conversation_id.to_owned();
-        let rows = tokio::task::spawn_blocking(move || -> Result<Vec<TaskRow>, PersistenceError> {
-            let c = conn.lock();
-            let mut stmt = c.prepare(
-                "SELECT task_id, conversation_id, state, created_at, terminal_at
+        let rows =
+            tokio::task::spawn_blocking(move || -> Result<Vec<TaskRow>, PersistenceError> {
+                let c = conn.lock();
+                let mut stmt = c.prepare(
+                    "SELECT task_id, conversation_id, state, created_at, terminal_at
                  FROM tasks WHERE conversation_id = ?1 ORDER BY created_at ASC",
-            )?;
-            let mapped = stmt
-                .query_map(params![cid], |r| {
-                    Ok(TaskRow {
-                        task_id: r.get(0)?,
-                        conversation_id: r.get(1)?,
-                        state: r.get(2)?,
-                        created_at: r.get(3)?,
-                        terminal_at: r.get(4)?,
-                    })
-                })?
-                .collect::<rusqlite::Result<Vec<_>>>()?;
-            Ok(mapped)
-        })
-        .await
-        .map_err(|_| PersistenceError::DriverGone)??;
+                )?;
+                let mapped = stmt
+                    .query_map(params![cid], |r| {
+                        Ok(TaskRow {
+                            task_id: r.get(0)?,
+                            conversation_id: r.get(1)?,
+                            state: r.get(2)?,
+                            created_at: r.get(3)?,
+                            terminal_at: r.get(4)?,
+                        })
+                    })?
+                    .collect::<rusqlite::Result<Vec<_>>>()?;
+                Ok(mapped)
+            })
+            .await
+            .map_err(|_| PersistenceError::DriverGone)??;
         Ok(rows)
     }
 
     // ──────────────── push notification configs ────────────────
 
-    pub async fn insert_push_config(
-        &self,
-        row: PushConfigRow,
-    ) -> Result<(), PersistenceError> {
+    pub async fn insert_push_config(&self, row: PushConfigRow) -> Result<(), PersistenceError> {
         let conn = Arc::clone(&self.conn);
         tokio::task::spawn_blocking(move || -> Result<(), PersistenceError> {
             conn.lock().execute(

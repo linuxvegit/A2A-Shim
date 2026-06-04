@@ -58,7 +58,10 @@ fn input_schema_includes_caller_id_and_conversation_mode() {
     // v1.1 items #4 + #5.
     let v = serde_json::to_value(tool_definition()).unwrap();
     let props = &v["inputSchema"]["properties"];
-    assert!(props.get("caller_id").is_some(), "missing caller_id property");
+    assert!(
+        props.get("caller_id").is_some(),
+        "missing caller_id property"
+    );
     assert_eq!(props["caller_id"]["type"], "string");
 
     let mode = &props["conversation_mode"];

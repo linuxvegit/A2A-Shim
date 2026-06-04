@@ -79,11 +79,7 @@ async fn subscribe_to_unknown_task_returns_task_not_found() {
         .json()
         .await
         .expect("json");
-    assert_eq!(
-        resp["error"]["code"],
-        codes::TASK_NOT_FOUND,
-        "got: {resp}"
-    );
+    assert_eq!(resp["error"]["code"], codes::TASK_NOT_FOUND, "got: {resp}");
 }
 
 #[tokio::test]
@@ -277,8 +273,7 @@ async fn subscribe_to_inflight_task_streams_terminal_event() {
         .await
         .expect("json");
     assert_eq!(
-        get_resp["result"]["status"]["state"],
-        "completed",
+        get_resp["result"]["status"]["state"], "completed",
         "got: {get_resp}"
     );
 }

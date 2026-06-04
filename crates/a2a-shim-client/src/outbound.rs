@@ -41,6 +41,9 @@ pub enum OutboundError {
 /// Open the SSE stream against `endpoint`. The returned stream yields
 /// `Result<SseEvent, OutboundError>` and ends after the terminal
 /// `status-update final=true`, on error, or on timeout.
+// REASON: 8 args matches the A2A SendMessage param surface; refactoring
+// to a builder pattern adds noise without clarity.
+#[allow(clippy::too_many_arguments)]
 pub async fn stream(
     endpoint: &str,
     conversation_id: &str,

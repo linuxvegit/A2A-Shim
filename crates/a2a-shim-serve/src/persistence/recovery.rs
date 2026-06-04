@@ -40,7 +40,10 @@ pub async fn bootstrap(
         tracing::debug!("recovery: no persisted conversations");
         return RecoveryReport::default();
     }
-    tracing::info!(count = rows.len(), "recovery: loading persisted conversations");
+    tracing::info!(
+        count = rows.len(),
+        "recovery: loading persisted conversations"
+    );
 
     let mut report = RecoveryReport::default();
     let mut tasks: FuturesUnordered<_> = FuturesUnordered::new();
