@@ -4,3 +4,4 @@
 
 pub mod sse_sink;
 pub mod conversation;
+pub mod acp_client;

@@ -20,6 +20,11 @@ uuid                  = { workspace = true }
 futures               = { workspace = true }
 bytes                 = { workspace = true }
 parking_lot           = { workspace = true }
+tokio-stream          = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util", "macros", "rt-multi-thread"] }
+# mock_acp_agent is a workspace member binary; we locate it via a relative
+# target path (see acp_client_smoke.rs) instead of using the unstable
+# `artifact = "bin"` cargo feature so the build stays on stable Rust.
+futures = { workspace = true }
