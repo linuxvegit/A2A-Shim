@@ -120,7 +120,12 @@ async fn agent_card_handler(State(state): State<ServeState>) -> impl IntoRespons
 async fn jsonrpc_root(
     State(state): State<ServeState>,
     Json(req): Json<JsonRpcRequest<Value>>,
-) -> impl IntoResponse {
+) -> axum::response::Response {
+    // message/stream needs to return an SSE body, not JSON. All other
+    // methods route through the JSON dispatch + envelope path.
+    if req.method == "message/stream" {
+        return handle_message_stream(state, req).await;
+    }
     let id = req.id.clone();
     let result = dispatch(state, &req).await;
     let resp = match result {
@@ -135,7 +140,7 @@ async fn jsonrpc_root(
             result_or_error: ResultOrError::from_error(e),
         },
     };
-    Json(resp)
+    Json(resp).into_response()
 }
 
 async fn dispatch(
@@ -146,7 +151,7 @@ async fn dispatch(
         "message/send" => handle_message_send(state, req.params.clone()).await,
         "tasks/get" => handle_tasks_get(state, req.params.clone()).await,
         "tasks/cancel" => handle_tasks_cancel(state, req.params.clone()).await,
-        // message/stream lands in Task 26.
+        // message/stream is special-cased above.
         other => Err(JsonRpcError {
             code: codes::METHOD_NOT_FOUND,
             message: format!("method not found: {other}"),
@@ -380,8 +385,182 @@ fn map_transition_error(e: TransitionError) -> JsonRpcError {
     }
 }
 
-// Used by Task 26.
-#[allow(dead_code)]
-fn _task_id_helper(id: &str) -> TaskId {
-    TaskId::from(id.to_string())
+// ───────────────────────── SSE: message/stream ─────────────────────────
+
+use axum::http::StatusCode;
+use axum::response::sse::{Event, KeepAlive, Sse};
+use futures::stream::StreamExt;
+
+use crate::conversation::InFlightGuard;
+use crate::sse_sink::SseFrame;
+
+async fn handle_message_stream(
+    state: ServeState,
+    req: JsonRpcRequest<Value>,
+) -> axum::response::Response {
+    match prepare_prompt(state.clone(), req.params.clone()).await {
+        Ok(PromptHandle { task_id, sink, permit, stream }) => {
+            // Spawn the bridge so it pumps SseSink while we hand the
+            // subscriber receiver out as the HTTP response body. The
+            // permit moves into the bridge task so it lives until the
+            // bridge finishes (terminal event published, sink closed).
+            let registry = state.tasks.clone();
+            let bridge_task_id = task_id.clone();
+            tokio::spawn(async move {
+                let _permit = permit;
+                if let Err(e) = bridge::run_session(bridge_task_id, registry, stream).await {
+                    tracing::warn!(error = %e, "bridge::run_session failed in stream branch");
+                }
+            });
+            // Per-Task SSE keepalive (spec § 2.12) handled by axum's
+            // built-in KeepAlive layer at 30s.
+            let rx = sink.subscribe();
+            let body = tokio_stream::wrappers::BroadcastStream::new(rx).filter_map(
+                |item| async move {
+                    match item {
+                        Ok(SseFrame::Event(ev)) => {
+                            // encode_sse_event returns the full "data: …\n\n"
+                            // block, but axum's Sse Event type only takes
+                            // the JSON body — re-serialize from the typed
+                            // form.
+                            let json = serde_json::to_string(&ev).ok()?;
+                            Some(Ok::<_, std::convert::Infallible>(
+                                Event::default().data(json),
+                            ))
+                        }
+                        Ok(SseFrame::Keepalive) => {
+                            // SseSink emits its own keepalive frames, but
+                            // we let axum's KeepAlive layer handle the
+                            // wire-level comment line so we don't double
+                            // up. Dropping our frame is correct.
+                            None
+                        }
+                        Err(_) => None, // lagged or closed -> end stream
+                    }
+                },
+            );
+            Sse::new(body)
+                .keep_alive(
+                    KeepAlive::new()
+                        .interval(a2a_shim_core::constants::SSE_KEEPALIVE_INTERVAL)
+                        .text("keepalive"),
+                )
+                .into_response()
+        }
+        Err(e) => {
+            // Prep failed: return JSON-RPC error envelope at HTTP 200.
+            let resp: JsonRpcResponse<Value> = JsonRpcResponse {
+                jsonrpc: "2.0".into(),
+                id: req.id.clone(),
+                result_or_error: ResultOrError::from_error(e),
+            };
+            let mut r = Json(resp).into_response();
+            // Keep status 200 so JSON-RPC error envelope semantics are
+            // preserved (clients parse the body to discover the error).
+            *r.status_mut() = StatusCode::OK;
+            r
+        }
+    }
+}
+
+/// Output of the conversation + task + permit + stream bootstrap shared
+/// by message/send and message/stream.
+struct PromptHandle {
+    task_id: TaskId,
+    sink: crate::sse_sink::SseSink,
+    permit: InFlightGuard,
+    stream: futures::stream::BoxStream<
+        'static,
+        Result<crate::acp_client::BridgeEvent, crate::acp_client::AcpError>,
+    >,
+}
+
+async fn prepare_prompt(
+    state: ServeState,
+    params: Value,
+) -> Result<PromptHandle, JsonRpcError> {
+    let parsed: SendMessageParams = serde_json::from_value(params).map_err(invalid_params)?;
+    let conv_id = parsed
+        .message
+        .metadata
+        .as_ref()
+        .and_then(|m| m.conversation.clone())
+        .ok_or_else(|| JsonRpcError {
+            code: codes::INVALID_PARAMS,
+            message: format!(
+                "missing required metadata key '{}' (spec § 2.6)",
+                a2a_shim_core::constants::CONVERSATION_METADATA_KEY
+            ),
+            data: None,
+        })?;
+
+    let acp = state.require_acp()?;
+    let cwd = state.cfg.agent.cwd.clone();
+
+    let (conv, _created) = state
+        .conversations
+        .get_or_create(&conv_id, || async {
+            let acp = Arc::clone(&acp);
+            let cwd: PathBuf = cwd;
+            acp.session_new(cwd)
+                .await
+                .map(|sid| sid.0.as_ref().to_string())
+                .map_err(|e| e.to_string())
+        })
+        .await
+        .map_err(map_new_error)?;
+
+    let permit = state
+        .conversations
+        .acquire_in_flight(&conv_id)
+        .await
+        .map_err(map_acquire_error)?;
+
+    let task_id = if let Some(existing_id) = parsed.id.clone() {
+        state
+            .tasks
+            .accept_continuation(&existing_id)
+            .await
+            .map_err(map_transition_error)?;
+        existing_id
+    } else {
+        state.tasks.create(&conv_id, &conv.acp_session_id).await
+    };
+
+    let prompt_text = parsed
+        .message
+        .parts
+        .iter()
+        .filter_map(|p| match p {
+            a2a_shim_core::wire::message::Part::Text { text } => Some(text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+
+    let session_id = SessionId::from(conv.acp_session_id.clone());
+    let stream = acp
+        .session_prompt(&session_id, &prompt_text)
+        .await
+        .map_err(|e| JsonRpcError {
+            code: codes::INTERNAL_ERROR,
+            message: format!("session/prompt failed: {e}"),
+            data: None,
+        })?;
+    let sink = state
+        .tasks
+        .sink(&task_id)
+        .await
+        .ok_or_else(|| JsonRpcError {
+            code: codes::INTERNAL_ERROR,
+            message: "task vanished before sink fetch".into(),
+            data: None,
+        })?;
+
+    Ok(PromptHandle {
+        task_id,
+        sink,
+        permit,
+        stream,
+    })
 }
