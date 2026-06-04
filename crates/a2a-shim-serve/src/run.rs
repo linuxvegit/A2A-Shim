@@ -57,6 +57,8 @@ pub enum RunError {
     Bind(String, std::io::Error),
     #[error("serve: {0}")]
     Serve(#[source] std::io::Error),
+    #[error("persistence: {0}")]
+    Persistence(String),
 }
 
 pub async fn run(opts: ServeRuntimeOpts) -> Result<(), RunError> {
@@ -118,9 +120,52 @@ pub async fn run(opts: ServeRuntimeOpts) -> Result<(), RunError> {
         .await
         .map_err(|e| RunError::InitAgent(e.to_string()))?;
 
+    // ----- 5b: open persistence (ADR 0007) + run restart recovery -----
+    let persistence = if cfg.server.persistence.enabled {
+        let path = cfg
+            .server
+            .persistence
+            .path
+            .clone()
+            .unwrap_or_else(|| std::path::PathBuf::from("./a2a-shim.db"));
+        match crate::persistence::Persistence::open(&path) {
+            Ok(p) => {
+                tracing::info!(path = %path.display(), "persistence: opened");
+                Some(p)
+            }
+            Err(e) => {
+                return Err(RunError::Persistence(format!(
+                    "open {} failed: {e}",
+                    path.display()
+                )));
+            }
+        }
+    } else {
+        tracing::info!("persistence: disabled by config");
+        None
+    };
+
     // ----- 6: bind + log -----
     let cfg_arc = Arc::new(cfg);
-    let state = ServeState::with_client(cfg_arc.clone(), acp);
+    let state = ServeState::with_client_and_persistence(cfg_arc.clone(), acp, persistence.clone());
+
+    // ----- 6b: recovery — restore persisted conversations BEFORE accepting traffic -----
+    if let (Some(p), Some(client)) = (persistence.as_ref(), state.acp.as_ref()) {
+        let report = crate::persistence::recovery::bootstrap(
+            p,
+            &state.conversations,
+            client.as_ref(),
+        )
+        .await;
+        if report.restored > 0 || report.dropped > 0 {
+            tracing::info!(
+                restored = report.restored,
+                dropped = report.dropped,
+                "persistence: recovery complete"
+            );
+        }
+    }
+
     let listener = tokio::net::TcpListener::bind(&cfg_arc.server.listen)
         .await
         .map_err(|e| RunError::Bind(cfg_arc.server.listen.clone(), e))?;

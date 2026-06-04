@@ -51,20 +51,32 @@ pub struct ServeState {
     pub acp: Option<Arc<AcpClient>>,
     pub conversations: ConversationMap,
     pub tasks: TaskRegistry,
+    pub persistence: Option<crate::persistence::Persistence>,
 }
 
 impl ServeState {
     pub fn new(cfg: Arc<ServeConfig>) -> Self {
-        let conv = ConversationMap::new(
+        Self::new_with_persistence(cfg, None)
+    }
+
+    /// Variant that wires a Persistence handle through to ConversationMap
+    /// and TaskRegistry so writes survive Serve restart (ADR 0007).
+    pub fn new_with_persistence(
+        cfg: Arc<ServeConfig>,
+        persistence: Option<crate::persistence::Persistence>,
+    ) -> Self {
+        let conv = ConversationMap::with_persistence(
             cfg.server.conversations.max_active,
             Duration::from_secs(cfg.server.conversations.idle_secs),
+            persistence.clone(),
         );
         Self {
             cfg,
             bound: Arc::new(OnceLock::new()),
             acp: None,
             conversations: conv,
-            tasks: TaskRegistry::new(),
+            tasks: TaskRegistry::with_persistence(persistence.clone()),
+            persistence,
         }
     }
 
@@ -74,6 +86,18 @@ impl ServeState {
 
     pub fn with_client(cfg: Arc<ServeConfig>, client: AcpClient) -> Self {
         let mut s = Self::new(cfg);
+        s.acp = Some(Arc::new(client));
+        s
+    }
+
+    /// Production constructor: config + ACP client + Persistence wired
+    /// through to all in-memory state holders. Used by serve::run.
+    pub fn with_client_and_persistence(
+        cfg: Arc<ServeConfig>,
+        client: AcpClient,
+        persistence: Option<crate::persistence::Persistence>,
+    ) -> Self {
+        let mut s = Self::new_with_persistence(cfg, persistence);
         s.acp = Some(Arc::new(client));
         s
     }

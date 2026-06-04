@@ -52,13 +52,18 @@ fn write_serve_config() -> (PathBuf, PathBuf) {
 [server]
 listen = "127.0.0.1:0"
 
+[server.persistence]
+enabled = true
+path = "{db}"
+
 [agent]
-command = "{}"
+command = "{cmd}"
 args = ["--script", "happy"]
-cwd = "{}"
+cwd = "{cwd}"
 "#,
-        mock.display().to_string().replace('\\', "/"),
-        tmp.display().to_string().replace('\\', "/"),
+        db = tmp.join("a2a-shim.db").display().to_string().replace('\\', "/"),
+        cmd = mock.display().to_string().replace('\\', "/"),
+        cwd = tmp.display().to_string().replace('\\', "/"),
     );
     std::fs::write(&cfg_path, cfg_body).expect("write cfg");
     (tmp, cfg_path)
