@@ -178,6 +178,15 @@ pub async fn run(opts: ServeRuntimeOpts) -> Result<(), RunError> {
         tracing::info!("push delivery: disabled by config");
     }
 
+    // ----- 6d: Prometheus metrics (Tasks 36-38) -----
+    if cfg_arc.server.metrics.enabled {
+        let handle = crate::metrics::install_global_recorder();
+        state.set_metrics_handle(handle);
+        tracing::info!("metrics: /metrics route mounted");
+    } else {
+        tracing::info!("metrics: disabled by config");
+    }
+
     // ----- 6b: recovery — restore persisted conversations BEFORE accepting traffic -----
     if let (Some(p), Some(client)) = (persistence.as_ref(), state.acp.as_ref()) {
         let report = crate::persistence::recovery::bootstrap(

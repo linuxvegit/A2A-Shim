@@ -226,6 +226,12 @@ impl ConversationMap {
         self.inner.read().await.get(id).cloned()
     }
 
+    /// Explicit remove (Task 39 _shim/conversation/reset). Returns true
+    /// if an entry was present.
+    pub async fn remove(&self, id: &str) -> bool {
+        self.inner.write().await.remove(id).is_some()
+    }
+
     /// Insert a conversation that was reconstituted from persistence
     /// (Task 24 recovery). Bypasses the spawn closure because the
     /// `acp_session_id` already exists on the agent side. Does NOT

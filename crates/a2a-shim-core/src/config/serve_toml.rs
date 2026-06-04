@@ -51,6 +51,8 @@ pub struct ServerConfig {
     pub caller_identity: CallerIdentityConfig,
     #[serde(default)]
     pub push_notifications: PushNotificationsConfig,
+    #[serde(default)]
+    pub metrics: MetricsConfig,
 }
 impl Default for ServerConfig {
     fn default() -> Self {
@@ -62,6 +64,7 @@ impl Default for ServerConfig {
             persistence: Default::default(),
             caller_identity: Default::default(),
             push_notifications: Default::default(),
+            metrics: Default::default(),
             max_part_bytes: d_max_part_bytes(),
         }
     }
@@ -182,6 +185,19 @@ fn d_http_connect_secs() -> u64 {
 }
 fn d_http_req_secs() -> u64 {
     10
+}
+
+/// Prometheus `/metrics` endpoint (ADR — spec § 7 item #7).
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct MetricsConfig {
+    /// Default ON in v1.1. When false, the /metrics route is not mounted.
+    #[serde(default = "d_true")]
+    pub enabled: bool,
+}
+impl Default for MetricsConfig {
+    fn default() -> Self {
+        Self { enabled: true }
+    }
 }
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ConversationsConfig {

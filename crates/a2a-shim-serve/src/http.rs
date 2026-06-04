@@ -54,6 +54,7 @@ pub struct ServeState {
     pub persistence: Option<crate::persistence::Persistence>,
     pub push_registry: crate::push_delivery::PushConfigRegistry,
     pub push_tx: Option<tokio::sync::mpsc::UnboundedSender<crate::push_delivery::DeliveryJob>>,
+    pub metrics_handle: Option<metrics_exporter_prometheus::PrometheusHandle>,
 }
 
 impl ServeState {
@@ -85,6 +86,7 @@ impl ServeState {
             persistence,
             push_registry,
             push_tx: None,
+            metrics_handle: None,
         }
     }
 
@@ -118,6 +120,14 @@ impl ServeState {
         self.push_tx = Some(tx);
     }
 
+    /// Wire the Prometheus handle so the /metrics route can render.
+    pub fn set_metrics_handle(
+        &mut self,
+        h: metrics_exporter_prometheus::PrometheusHandle,
+    ) {
+        self.metrics_handle = Some(h);
+    }
+
     pub fn set_bound(&self, addr: SocketAddr) {
         let _ = self.bound.set(addr);
     }
@@ -140,10 +150,32 @@ impl ServeState {
 
 pub fn router(state: ServeState) -> Router {
     let card_path = state.cfg.server.agent_card_path.clone();
-    Router::new()
+    let metrics_enabled = state.cfg.server.metrics.enabled;
+    let mut r = Router::new()
         .route(&card_path, get(agent_card_handler))
-        .route("/", post(jsonrpc_root))
-        .with_state(state)
+        .route("/", post(jsonrpc_root));
+    if metrics_enabled {
+        r = r.route("/metrics", get(metrics_handler));
+    }
+    r.with_state(state)
+}
+
+async fn metrics_handler(State(state): State<ServeState>) -> impl IntoResponse {
+    match state.metrics_handle.as_ref() {
+        Some(h) => (
+            [(
+                axum::http::header::CONTENT_TYPE,
+                "text/plain; version=0.0.4; charset=utf-8",
+            )],
+            h.render(),
+        )
+            .into_response(),
+        None => (
+            axum::http::StatusCode::SERVICE_UNAVAILABLE,
+            "metrics recorder not initialized",
+        )
+            .into_response(),
+    }
 }
 
 async fn agent_card_handler(State(state): State<ServeState>) -> impl IntoResponse {
@@ -176,7 +208,9 @@ async fn jsonrpc_root(
         return handle_message_stream(state, req, header_caller).await;
     }
     let id = req.id.clone();
+    let method_for_metric = req.method.clone();
     let result = dispatch(state, &req, header_caller).await;
+    crate::metrics::record_message(&method_for_metric, result.is_ok());
     let resp = match result {
         Ok(v) => JsonRpcResponse {
             jsonrpc: "2.0".into(),
@@ -210,8 +244,10 @@ async fn dispatch(
         "DeleteTaskPushNotificationConfig" => {
             handle_push_delete(state, req.params.clone()).await
         }
+        "_shim/conversation/reset" => {
+            handle_conversation_reset(state, req.params.clone(), header_caller).await
+        }
         // SendStreamingMessage / SubscribeToTask handled above as SSE.
-        // _shim/conversation/reset in Task 39.
         other => Err(JsonRpcError {
             code: codes::METHOD_NOT_FOUND,
             message: format!("method not found: {other}"),
@@ -1061,4 +1097,78 @@ pub(crate) fn enqueue_push_for_terminal(
             tracing::debug!(error = %e, "push delivery channel closed");
         }
     }
+}
+
+// ──────────────────── _shim/conversation/reset (Task 39) ────────────────────
+
+#[derive(serde::Deserialize)]
+struct ConversationResetParams {
+    conversation_id: String,
+    #[serde(default)]
+    caller_id: Option<String>,
+}
+
+async fn handle_conversation_reset(
+    state: ServeState,
+    params: Value,
+    header_caller: Option<String>,
+) -> Result<Value, JsonRpcError> {
+    let parsed: ConversationResetParams =
+        serde_json::from_value(params).map_err(invalid_params)?;
+    let caller = resolve_caller_id(
+        &state.cfg.server.caller_identity,
+        header_caller.as_deref(),
+        parsed.caller_id.as_deref(),
+    );
+    let conv_key = partition_key(caller.as_deref(), &parsed.conversation_id);
+
+    let conv = state.conversations.get(&conv_key).await;
+    let conv_exists = conv.is_some();
+
+    // Cancel every non-terminal Task that points at this conv_key.
+    let (tasks, _) = state.tasks.list(None, 1000).await;
+    let mut cancelled: Vec<String> = Vec::new();
+    for t in tasks {
+        if t.context_id.as_deref() == Some(conv_key.as_str()) && !t.status.state.is_terminal() {
+            if state.tasks.cancel(&t.id).await.is_ok() {
+                cancelled.push(t.id.as_str().to_string());
+            }
+        }
+    }
+
+    // Tell the ACP agent to drop the session.
+    if let (Some(conv), Some(acp)) = (conv.as_ref(), state.acp.as_ref()) {
+        let sid = agent_client_protocol::schema::SessionId::from(conv.acp_session_id.clone());
+        if let Err(e) = acp.session_cancel(&sid).await {
+            tracing::warn!(
+                conv = %conv_key,
+                error = %e,
+                "ACP session/cancel failed during conversation reset"
+            );
+        }
+    }
+
+    // Drop the in-mem entry + persistence row (CASCADE removes tasks +
+    // push configs).
+    if conv_exists {
+        if let Some(p) = state.persistence.as_ref() {
+            if let Err(e) = p.delete_conversation(&conv_key).await {
+                tracing::warn!(
+                    conv = %conv_key,
+                    error = %e,
+                    "persistence delete during conversation reset failed"
+                );
+            }
+        }
+        // Best-effort: there's no direct ConversationMap remove method
+        // today, so trigger via sweep_idle by zeroing the timestamp.
+        // Simpler v1.1 path: rely on idle reaper to evict; or expose a
+        // remove. We do a manual remove via internal access.
+        state.conversations.remove(&conv_key).await;
+    }
+
+    Ok(serde_json::json!({
+        "cleared": conv_exists,
+        "cancelled_task_ids": cancelled,
+    }))
 }

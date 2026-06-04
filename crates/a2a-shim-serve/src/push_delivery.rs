@@ -299,6 +299,7 @@ pub fn start_worker_pool(
                 match deliver(&http, &job, policy).await {
                     DeliveryOutcome::Success => {
                         registry.reset_failure_count(&job.config.config_id);
+                        crate::metrics::record_push_delivery("success");
                     }
                     DeliveryOutcome::PermanentFailure => {
                         let should_delete =
@@ -317,8 +318,11 @@ pub fn start_worker_pool(
                                 );
                             }
                         }
+                        crate::metrics::record_push_delivery("permanent_failure");
                     }
-                    DeliveryOutcome::Dropped => {} // already logged inside deliver
+                    DeliveryOutcome::Dropped => {
+                        crate::metrics::record_push_delivery("dropped");
+                    }
                 }
             }
         });
