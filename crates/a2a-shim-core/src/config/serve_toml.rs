@@ -45,6 +45,8 @@ pub struct ServerConfig {
     pub max_part_bytes: usize,
     #[serde(default)]
     pub conversations: ConversationsConfig,
+    #[serde(default)]
+    pub persistence: PersistenceConfig,
 }
 impl Default for ServerConfig {
     fn default() -> Self {
@@ -53,11 +55,38 @@ impl Default for ServerConfig {
             advertised_endpoint: None,
             agent_card_path: d_card_path(),
             conversations: Default::default(),
+            persistence: Default::default(),
             max_part_bytes: d_max_part_bytes(),
         }
     }
 }
 
+
+/// SQLite-backed persistence settings (ADR 0007 / spec § 4 item #3).
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct PersistenceConfig {
+    /// Default ON in v1.1: conversations + tasks survive Serve restart.
+    /// Set false to opt back into v0.1.0 purely-in-memory behavior.
+    #[serde(default = "d_persistence_enabled")]
+    pub enabled: bool,
+    /// SQLite file path. Default `./a2a-shim.db`. Ignored when disabled.
+    #[serde(default = "d_persistence_path")]
+    pub path: Option<std::path::PathBuf>,
+}
+impl Default for PersistenceConfig {
+    fn default() -> Self {
+        Self {
+            enabled: d_persistence_enabled(),
+            path: d_persistence_path(),
+        }
+    }
+}
+fn d_persistence_enabled() -> bool {
+    true
+}
+fn d_persistence_path() -> Option<std::path::PathBuf> {
+    Some(std::path::PathBuf::from("./a2a-shim.db"))
+}
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ConversationsConfig {
     #[serde(default = "d_idle_secs")]
