@@ -59,7 +59,7 @@ impl TaskState {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct TaskStatus {
     pub state: TaskState,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -68,7 +68,7 @@ pub struct TaskStatus {
     pub timestamp: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Artifact {
     #[serde(rename = "artifactId", skip_serializing_if = "Option::is_none")]
     pub artifact_id: Option<String>,
@@ -79,7 +79,7 @@ pub struct Artifact {
     pub metadata: Option<Value>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Task {
     pub id: TaskId,
     #[serde(rename = "contextId", skip_serializing_if = "Option::is_none")]

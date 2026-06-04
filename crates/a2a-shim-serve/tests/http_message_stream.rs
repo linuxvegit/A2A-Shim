@@ -119,25 +119,25 @@ async fn message_stream_emits_working_artifact_completed() {
     // First: status Working
     assert!(matches!(
         &events[0],
-        SseEvent::StatusUpdate { status, final_, .. }
-            if status.state == TaskState::Working && !final_
+        SseEvent::StatusUpdate { inner }
+            if inner.status.state == TaskState::Working && !inner.final_
     ));
     // Somewhere: artifact-update carrying "4"
     let mut saw_answer = false;
     let mut saw_final = false;
     for e in &events {
         match e {
-            SseEvent::ArtifactUpdate { artifact, .. } => {
+            SseEvent::ArtifactUpdate { inner } => {
                 if let Some(a2a_shim_core::wire::message::Part::Text { text }) =
-                    artifact.parts.first()
+                    inner.artifact.parts.first()
                 {
                     if text == "4" {
                         saw_answer = true;
                     }
                 }
             }
-            SseEvent::StatusUpdate { status, final_, .. }
-                if status.state == TaskState::Completed && *final_ =>
+            SseEvent::StatusUpdate { inner }
+                if inner.status.state == TaskState::Completed && inner.final_ =>
             {
                 saw_final = true;
             }

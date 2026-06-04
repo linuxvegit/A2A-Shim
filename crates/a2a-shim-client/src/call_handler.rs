@@ -197,14 +197,10 @@ where
 
     while let Some(item) = stream.next().await {
         match item {
-            Ok(SseEvent::StatusUpdate {
-                task_id,
-                status,
-                final_,
-            }) => {
-                task.id = task_id;
-                task.status = status;
-                if final_ {
+            Ok(SseEvent::StatusUpdate { inner }) => {
+                task.id = inner.task_id;
+                task.status = inner.status;
+                if inner.final_ {
                     return match task.status.state {
                         TaskState::Completed => DriveOutcome::Completed(task),
                         TaskState::Failed => DriveOutcome::Failed(task),
@@ -216,15 +212,11 @@ where
                     };
                 }
             }
-            Ok(SseEvent::ArtifactUpdate {
-                task_id,
-                artifact,
-                append,
-            }) => {
-                task.id = task_id;
+            Ok(SseEvent::ArtifactUpdate { inner }) => {
+                task.id = inner.task_id;
                 chunk_count += 1;
                 heartbeat.update_summary(format!("streaming chunk {chunk_count}"));
-                upsert_artifact(&mut task.artifacts, artifact, append);
+                upsert_artifact(&mut task.artifacts, inner.artifact, inner.append);
             }
             Err(e) => {
                 let kind = error_kind_for_outbound(&e);

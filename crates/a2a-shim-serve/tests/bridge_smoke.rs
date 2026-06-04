@@ -79,33 +79,29 @@ async fn happy_path_chunk_then_completed() {
         frames.len()
     );
 
-    let SseFrame::Event(SseEvent::StatusUpdate {
-        status: first_status,
-        final_: f0,
-        ..
-    }) = &frames[0]
+    let SseFrame::Event(SseEvent::StatusUpdate { inner: first_inner }) = &frames[0]
     else {
         panic!("first frame should be StatusUpdate, got {:?}", frames[0]);
     };
-    assert_eq!(first_status.state, TaskState::Working);
-    assert!(!f0, "first status should not be final");
+    assert_eq!(first_inner.status.state, TaskState::Working);
+    assert!(!first_inner.final_, "first status should not be final");
 
     // Find the artifact-update with text "4" and the terminal completed.
     let mut saw_answer = false;
     let mut saw_terminal_completed = false;
     for f in &frames[1..] {
         match f {
-            SseFrame::Event(SseEvent::ArtifactUpdate { artifact, .. }) => {
+            SseFrame::Event(SseEvent::ArtifactUpdate { inner }) => {
                 if let Some(a2a_shim_core::wire::message::Part::Text { text }) =
-                    artifact.parts.first()
+                    inner.artifact.parts.first()
                 {
                     if text == "4" {
                         saw_answer = true;
                     }
                 }
             }
-            SseFrame::Event(SseEvent::StatusUpdate { status, final_, .. })
-                if status.state == TaskState::Completed && *final_ =>
+            SseFrame::Event(SseEvent::StatusUpdate { inner })
+                if inner.status.state == TaskState::Completed && inner.final_ =>
             {
                 saw_terminal_completed = true;
             }

@@ -45,25 +45,28 @@ async fn spawn_fake(cfg: ServerCfg) -> SocketAddr {
                     let initial_delay = cfg.initial_delay;
                     let events = vec![
                         json!({
-                            "kind": "status-update",
-                            "taskId": "t-fake",
-                            "status": { "state": "working" },
-                            "final": false
+                            "statusUpdate": {
+                                "taskId": "t-fake",
+                                "status": { "state": "working" },
+                                "final": false
+                            }
                         }),
                         json!({
-                            "kind": "artifact-update",
-                            "taskId": "t-fake",
-                            "artifact": {
-                                "artifactId": "a-answer",
-                                "parts": [{ "type": "text", "text": "4" }]
-                            },
-                            "append": false
+                            "artifactUpdate": {
+                                "taskId": "t-fake",
+                                "artifact": {
+                                    "artifactId": "a-answer",
+                                    "parts": [{ "text": "4" }]
+                                },
+                                "append": false
+                            }
                         }),
                         json!({
-                            "kind": "status-update",
-                            "taskId": "t-fake",
-                            "status": { "state": "completed" },
-                            "final": true
+                            "statusUpdate": {
+                                "taskId": "t-fake",
+                                "status": { "state": "completed" },
+                                "final": true
+                            }
                         }),
                     ];
                     let stream = async_stream::stream! {
@@ -116,8 +119,8 @@ async fn happy_path_yields_three_events_then_ends() {
     assert!(matches!(got[0], SseEvent::StatusUpdate { .. }));
     assert!(matches!(got[1], SseEvent::ArtifactUpdate { .. }));
     assert!(matches!(
-        got[2],
-        SseEvent::StatusUpdate { final_: true, .. }
+        &got[2],
+        SseEvent::StatusUpdate { inner } if inner.final_
     ));
 }
 

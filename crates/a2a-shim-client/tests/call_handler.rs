@@ -26,25 +26,28 @@ async fn happy_endpoint() -> SocketAddr {
         post(|Json(_): Json<Value>| async {
             let events = vec![
                 json!({
-                    "kind": "status-update",
-                    "taskId": "t-fake",
-                    "status": { "state": "working" },
-                    "final": false
+                    "statusUpdate": {
+                        "taskId": "t-fake",
+                        "status": { "state": "working" },
+                        "final": false
+                    }
                 }),
                 json!({
-                    "kind": "artifact-update",
-                    "taskId": "t-fake",
-                    "artifact": {
-                        "artifactId": "a-answer",
-                        "parts": [{ "type": "text", "text": "Hello!" }]
-                    },
-                    "append": false
+                    "artifactUpdate": {
+                        "taskId": "t-fake",
+                        "artifact": {
+                            "artifactId": "a-answer",
+                            "parts": [{ "text": "Hello!" }]
+                        },
+                        "append": false
+                    }
                 }),
                 json!({
-                    "kind": "status-update",
-                    "taskId": "t-fake",
-                    "status": { "state": "completed" },
-                    "final": true
+                    "statusUpdate": {
+                        "taskId": "t-fake",
+                        "status": { "state": "completed" },
+                        "final": true
+                    }
                 }),
             ];
             let stream = async_stream::stream! {

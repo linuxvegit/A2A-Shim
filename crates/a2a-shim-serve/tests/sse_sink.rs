@@ -5,15 +5,15 @@ use std::time::Duration;
 use tokio::time::timeout;
 
 fn status(state: TaskState, final_: bool) -> SseEvent {
-    SseEvent::StatusUpdate {
-        task_id: TaskId::from("t-1"),
-        status: TaskStatus {
+    SseEvent::status(
+        TaskId::from("t-1"),
+        TaskStatus {
             state,
             message: None,
             timestamp: None,
         },
         final_,
-    }
+    )
 }
 
 #[tokio::test]
@@ -31,13 +31,8 @@ async fn subscriber_receives_event_then_final_closes_channel() {
         .expect("first frame is Ok");
     assert!(matches!(
         first,
-        SseFrame::Event(SseEvent::StatusUpdate {
-            status: TaskStatus {
-                state: TaskState::Working,
-                ..
-            },
-            ..
-        })
+        SseFrame::Event(SseEvent::StatusUpdate { inner })
+            if inner.status.state == TaskState::Working
     ));
 
     // Second frame: completed final
@@ -47,14 +42,8 @@ async fn subscriber_receives_event_then_final_closes_channel() {
         .expect("second frame is Ok");
     assert!(matches!(
         second,
-        SseFrame::Event(SseEvent::StatusUpdate {
-            status: TaskStatus {
-                state: TaskState::Completed,
-                ..
-            },
-            final_: true,
-            ..
-        })
+        SseFrame::Event(SseEvent::StatusUpdate { inner })
+            if inner.status.state == TaskState::Completed && inner.final_
     ));
 
     // Channel must be closed now.

@@ -110,7 +110,7 @@ pub async fn stream(
                                 Ok(typed) => {
                                     let is_final = matches!(
                                         &typed,
-                                        SseEvent::StatusUpdate { final_: true, .. }
+                                        SseEvent::StatusUpdate { inner } if inner.final_
                                     );
                                     yield Ok(typed);
                                     if is_final { break; }

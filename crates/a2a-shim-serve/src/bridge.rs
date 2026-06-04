@@ -83,16 +83,16 @@ where
                         };
                         let _ = registry.upsert_artifact(&task_id, artifact).await?;
                         // Publish just the delta as an artifact-update with append.
-                        sink.publish_event(SseEvent::ArtifactUpdate {
-                            task_id: task_id.clone(),
-                            artifact: Artifact {
+                        sink.publish_event(SseEvent::artifact(
+                            task_id.clone(),
+                            Artifact {
                                 artifact_id: Some(ANSWER_ARTIFACT_ID.into()),
                                 name: Some(ANSWER_ARTIFACT_NAME.into()),
                                 parts: vec![part],
                                 metadata: None,
                             },
                             append,
-                        });
+                        ));
                     }
                 }
                 _ => {
@@ -130,15 +130,15 @@ where
 }
 
 fn working_event(task_id: &TaskId) -> SseEvent {
-    SseEvent::StatusUpdate {
-        task_id: task_id.clone(),
-        status: TaskStatus {
+    SseEvent::status(
+        task_id.clone(),
+        TaskStatus {
             state: TaskState::Working,
             message: None,
             timestamp: None,
         },
-        final_: false,
-    }
+        false,
+    )
 }
 
 async fn publish_terminal_for_stop(
@@ -160,11 +160,7 @@ async fn publish_terminal_for_stop(
         message: status_message_for_stop(stop),
         timestamp: None,
     };
-    sink.publish_final(SseEvent::StatusUpdate {
-        task_id: task_id.clone(),
-        status,
-        final_: true,
-    });
+    sink.publish_final(SseEvent::status(task_id.clone(), status, true));
     Ok(())
 }
 
@@ -175,15 +171,15 @@ async fn publish_failed(
     reason: String,
 ) -> Result<(), BridgeError> {
     registry.transition(task_id, TaskState::Failed).await?;
-    sink.publish_final(SseEvent::StatusUpdate {
-        task_id: task_id.clone(),
-        status: TaskStatus {
+    sink.publish_final(SseEvent::status(
+        task_id.clone(),
+        TaskStatus {
             state: TaskState::Failed,
             message: Some(text_message(reason)),
             timestamp: None,
         },
-        final_: true,
-    });
+        true,
+    ));
     Ok(())
 }
 
