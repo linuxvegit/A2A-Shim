@@ -3,3 +3,4 @@
 //! Module surface is built up incrementally across Phase 2 tasks.
 
 pub mod sse_sink;
+pub mod conversation;
