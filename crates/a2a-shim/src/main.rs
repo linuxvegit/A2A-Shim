@@ -4,11 +4,11 @@ use clap::Parser;
 
 fn main() -> anyhow::Result<()> {
     let parsed = cli::Cli::parse();
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?;
     match parsed.command {
         cli::Command::Serve(opts) => {
-            let runtime = tokio::runtime::Builder::new_multi_thread()
-                .enable_all()
-                .build()?;
             runtime.block_on(async move {
                 let r_opts = a2a_shim_serve::run::ServeRuntimeOpts {
                     config_path: opts.config,
@@ -25,9 +25,24 @@ fn main() -> anyhow::Result<()> {
             });
             Ok(())
         }
-        cli::Command::Client(_) => {
-            eprintln!("a2a-shim client: implementation lands in Task 33");
-            std::process::exit(2);
+        cli::Command::Client(opts) => {
+            runtime.block_on(async move {
+                let r_opts = a2a_shim_client::run::ClientRunOpts {
+                    connect_timeout_secs: opts.connect_timeout_secs,
+                    stream_idle_secs: opts.stream_idle_secs,
+                    hard_ceiling_secs: opts.hard_ceiling_secs,
+                    heartbeat_secs: opts.heartbeat_secs,
+                    log_file: opts.log_file,
+                    log_level: opts.log_level,
+                    log_format: Some(parsed.log_format.clone()),
+                };
+                if let Err(e) = a2a_shim_client::run::run(r_opts).await {
+                    // Logs go to stderr; never write to stdout here.
+                    eprintln!("a2a-shim client: {e}");
+                    std::process::exit(1);
+                }
+            });
+            Ok(())
         }
     }
 }
