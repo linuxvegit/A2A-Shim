@@ -5,3 +5,14 @@ edition      = { workspace = true }
 rust-version = { workspace = true }
 license      = { workspace = true }
 description  = "Shared wire types, error codes, timeouts, config, and logging init for the A2A-Shim project."
+
+[dependencies]
+serde              = { workspace = true }
+serde_json         = { workspace = true }
+thiserror          = { workspace = true }
+uuid               = { workspace = true }
+toml               = { workspace = true }
+tokio              = { workspace = true }
+tracing            = { workspace = true }
+tracing-subscriber = { workspace = true }
+parking_lot        = { workspace = true }

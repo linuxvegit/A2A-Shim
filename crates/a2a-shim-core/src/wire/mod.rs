@@ -1,0 +1,5 @@
+//! Wire-format types for A2A and JSON-RPC traffic.
+//!
+//! Spec § 4. Each submodule is self-contained and round-trip tested.
+
+pub mod envelope;

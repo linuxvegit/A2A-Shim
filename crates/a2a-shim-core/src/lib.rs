@@ -5,3 +5,4 @@
 //! depend on it; the top-level `a2a-shim` binary re-exports nothing.
 
 pub mod constants;
+pub mod wire;
