@@ -39,8 +39,9 @@
 
 use agent_client_protocol::schema::ContentBlock;
 use agent_client_protocol::schema::{
-    ClientCapabilities, InitializeRequest, InitializeResponse, NewSessionRequest, PromptRequest,
-    ProtocolVersion, SessionId, SessionNotification, SessionUpdate, StopReason, TextContent,
+    ClientCapabilities, InitializeRequest, InitializeResponse, LoadSessionRequest,
+    NewSessionRequest, PromptRequest, ProtocolVersion, ResumeSessionRequest, SessionId,
+    SessionNotification, SessionUpdate, StopReason, TextContent,
 };
 use agent_client_protocol::{AcpAgent, Agent, ConnectionTo, Result as AcpResult};
 use futures::stream::BoxStream;
@@ -102,6 +103,16 @@ enum Command {
         /// BridgeEvent::Terminal(stop_reason) when the prompt resolves, then
         /// drops the sender so the receiver observes None.
         sink: mpsc::UnboundedSender<std::result::Result<BridgeEvent, AcpError>>,
+    },
+    LoadSession {
+        session_id: SessionId,
+        cwd: PathBuf,
+        respond: oneshot::Sender<AcpResult<()>>,
+    },
+    ResumeSession {
+        session_id: SessionId,
+        cwd: PathBuf,
+        respond: oneshot::Sender<AcpResult<()>>,
     },
     Cancel {
         session_id: SessionId,
@@ -245,6 +256,49 @@ impl AcpClient {
         Ok(Box::pin(stream))
     }
 
+    /// session/load (ADR 0007 + Spike A): re-attach to an existing
+    /// session id after restart. The agent replays prior turns as
+    /// session/update notifications immediately; subscribers see them
+    /// through the route_map if registered before this call returns.
+    pub async fn session_load(
+        &self,
+        session_id: &SessionId,
+        cwd: PathBuf,
+    ) -> Result<(), AcpError> {
+        let (tx, rx) = oneshot::channel();
+        self.cmd_tx
+            .send(Command::LoadSession {
+                session_id: session_id.clone(),
+                cwd,
+                respond: tx,
+            })
+            .map_err(|_| AcpError::DriverGone)?;
+        rx.await
+            .map_err(|_| AcpError::DriverGone)?
+            .map_err(|e| AcpError::Agent(e.to_string()))
+    }
+
+    /// session/resume (ADR 0007 + Spike A): resume a previously-cancelled
+    /// session. Mostly symmetric to session_load; the agent decides what
+    /// resume means for its own internal state.
+    pub async fn session_resume(
+        &self,
+        session_id: &SessionId,
+        cwd: PathBuf,
+    ) -> Result<(), AcpError> {
+        let (tx, rx) = oneshot::channel();
+        self.cmd_tx
+            .send(Command::ResumeSession {
+                session_id: session_id.clone(),
+                cwd,
+                respond: tx,
+            })
+            .map_err(|_| AcpError::DriverGone)?;
+        rx.await
+            .map_err(|_| AcpError::DriverGone)?
+            .map_err(|e| AcpError::Agent(e.to_string()))
+    }
+
     pub async fn session_cancel(&self, session_id: &SessionId) -> Result<(), AcpError> {
         let (tx, rx) = oneshot::channel();
         self.cmd_tx
@@ -305,6 +359,24 @@ async fn drive(
                 routes.lock().remove(&session_id);
                 // Dropping `sink` is implicit at end of scope; subscribers
                 // observe end-of-stream.
+            }
+            Command::LoadSession {
+                session_id,
+                cwd,
+                respond,
+            } => {
+                let req = LoadSessionRequest::new(session_id, cwd);
+                let result = conn.send_request(req).block_task().await.map(|_| ());
+                let _ = respond.send(result);
+            }
+            Command::ResumeSession {
+                session_id,
+                cwd,
+                respond,
+            } => {
+                let req = ResumeSessionRequest::new(session_id, cwd);
+                let result = conn.send_request(req).block_task().await.map(|_| ());
+                let _ = respond.send(result);
             }
             Command::Cancel {
                 session_id,

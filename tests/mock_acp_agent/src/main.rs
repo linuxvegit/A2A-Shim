@@ -16,8 +16,9 @@
 use agent_client_protocol::schema::{
     AgentCapabilities, ContentBlock, ContentChunk, ImageContent, InitializeRequest,
     InitializeResponse, LoadSessionRequest, LoadSessionResponse, NewSessionRequest,
-    NewSessionResponse, PromptRequest, PromptResponse, SessionId, SessionNotification,
-    SessionUpdate, StopReason, TextContent,
+    NewSessionResponse, PromptRequest, PromptResponse, ResumeSessionRequest,
+    ResumeSessionResponse, SessionId, SessionNotification, SessionUpdate, StopReason,
+    TextContent,
 };
 use agent_client_protocol::{Agent, Client, ConnectionTo, Dispatch, Result, Stdio};
 use clap::Parser;
@@ -71,6 +72,12 @@ async fn main() -> Result<()> {
         .on_receive_request(
             async move |_req: LoadSessionRequest, responder, _conn| {
                 responder.respond(LoadSessionResponse::new())
+            },
+            agent_client_protocol::on_receive_request!(),
+        )
+        .on_receive_request(
+            async move |_req: ResumeSessionRequest, responder, _conn| {
+                responder.respond(ResumeSessionResponse::new())
             },
             agent_client_protocol::on_receive_request!(),
         )
