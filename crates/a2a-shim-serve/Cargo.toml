@@ -28,3 +28,4 @@ tokio = { workspace = true, features = ["test-util", "macros", "rt-multi-thread"
 # target path (see acp_client_smoke.rs) instead of using the unstable
 # `artifact = "bin"` cargo feature so the build stays on stable Rust.
 futures = { workspace = true }
+reqwest = { workspace = true }

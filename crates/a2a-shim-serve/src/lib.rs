@@ -10,3 +10,4 @@ pub mod permission;
 pub mod elicitation;
 pub mod agent_card;
 pub mod bridge;
+pub mod http;
