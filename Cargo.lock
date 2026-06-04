@@ -30,6 +30,7 @@ dependencies = [
  "futures",
  "parking_lot",
  "reqwest",
+ "scopeguard",
  "serde",
  "serde_json",
  "thiserror 1.0.69",
