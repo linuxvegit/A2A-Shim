@@ -6,3 +6,4 @@ pub mod sse_sink;
 pub mod conversation;
 pub mod acp_client;
 pub mod task_registry;
+pub mod permission;
