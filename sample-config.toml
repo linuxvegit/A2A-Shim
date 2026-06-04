@@ -1,0 +1,83 @@
+# Sample a2a-shim Serve Shim configuration.
+# Copy and edit to taste, then run:
+#   a2a-shim serve --config my-serve.toml
+#
+# Every section here is optional except [agent].command and [agent].cwd.
+# The values shown below are the spec § 2.3 defaults.
+
+[server]
+# Address to bind. Non-loopback binds work and log a WARN, but the shim
+# does NOT own auth or TLS — front it with a port-forward, SSH tunnel, or
+# HTTPS terminator. See docs/operating-notes.md.
+listen = "127.0.0.1:7001"
+
+# If set, this URL is what /.well-known/agent.json advertises instead of
+# the bound address. Useful when sitting behind a reverse proxy.
+# advertised_endpoint = "https://my-agent.example.com/"
+
+# Path under which the AgentCard is served.
+agent_card_path = "/.well-known/agent.json"
+
+[server.conversations]
+# Idle window after which an unused conversation is evicted. v0.1.0 limitation:
+# the underlying ACP session is NOT explicitly cancelled when this happens
+# (it gets orphaned until the agent process restarts). Plan for this if you
+# set a low value.
+idle_secs = 86400  # 24h
+
+# Maximum concurrently-tracked conversations. Spec § 4.6 returns
+# CONVERSATION_LIMIT_REACHED (-32011) once exceeded.
+max_active = 64
+
+[agent]
+# Required. Path or PATH-resolvable name of the ACP agent binary.
+# Examples:
+#   command = "claude-agent-acp"                  # if on PATH (Unix)
+#   command = "node"; args = ["/abs/.../dist/index.js"]   # Windows-safe
+command = "claude-agent-acp"
+
+# Optional argv tail.
+args = []
+
+# Required. Working directory passed to the agent on session/new.
+cwd = "/tmp"
+
+# Optional environment overrides for the spawned agent (merged with parent env).
+# [agent.env]
+# ANTHROPIC_API_KEY = "sk-..."
+
+# AgentCard fields surfaced under /.well-known/agent.json.
+[agent.card]
+name = "a2a-shim-serve"
+description = "ACP Agent exposed as A2A endpoint via a2a-shim"
+version = "0.1.0"
+
+[agent.permissions]
+# 'auto_approve' (default) | 'auto_reject'. 'passthrough' is reserved for v1.2.
+strategy = "auto_approve"
+
+# Tool kinds (lower_snake) that are auto-rejected regardless of strategy.
+# Useful even on 'auto_approve' to bound blast radius.
+# deny_tool_kinds = ["delete", "execute"]
+deny_tool_kinds = []
+
+[timeouts]
+# Synchronous request idle window (currently unused; reserved for v1.2).
+agent_sync_idle_secs = 120
+# Time without any session/update before we abort a streaming prompt.
+agent_stream_idle_secs = 600
+# Absolute per-call budget. Default is generous (24h) on the assumption
+# the operator manages real timeouts at the Host or proxy layer.
+agent_hard_ceiling_secs = 86400
+# How long an input-required Task may wait before being marked failed.
+input_required_wait_secs = 86400
+# Drain budget on Ctrl-C before forced exit.
+shutdown_grace_secs = 5
+
+[logging]
+# 'error' | 'warn' | 'info' | 'debug' | 'trace' or a tracing EnvFilter directive.
+level = "info"
+# 'compact' | 'json' | 'pretty'
+format = "compact"
+# Optional file destination. Defaults to stderr.
+# file = "/var/log/a2a-shim-serve.log"
