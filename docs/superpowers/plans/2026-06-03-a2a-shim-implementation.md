@@ -12,7 +12,7 @@
 - `a2a-shim-client` — stdio MCP server, `a2a_send` tool, outbound A2A JSON-RPC + SSE consumption.
 - `tests/mock_acp_agent` — scripted stdio mock used by Serve integration tests.
 
-**Tech stack:** Rust 1.75+, `tokio` 1, `axum` 0.7, `reqwest` 0.12 (rustls), `serde`/`serde_json`, `agent-client-protocol = "0.13"`, `tracing` + `tracing-subscriber`, `clap` 4, `miette` 7, `eventsource-stream` 0.2, `uuid` 1, `toml` 0.8.
+**Tech stack:** Rust 1.95+, `tokio` 1, `axum` 0.7, `reqwest` 0.12 (rustls), `serde`/`serde_json`, `agent-client-protocol = "0.13"`, `tracing` + `tracing-subscriber`, `clap` 4, `miette` 7, `eventsource-stream` 0.2, `uuid` 1, `toml` 0.8.
 
 **Authoritative references — the spec is the source of truth, not this plan:**
 
@@ -242,7 +242,7 @@ members = [
 [workspace.package]
 version      = "0.1.0"
 edition      = "2021"
-rust-version = "1.75"
+rust-version = "1.95"
 license      = "Apache-2.0"
 
 [workspace.dependencies]
@@ -278,7 +278,7 @@ panic         = "abort"
 
 ```toml
 [toolchain]
-channel    = "1.75"
+channel    = "1.95"
 components = ["rustfmt", "clippy"]
 profile    = "minimal"
 ```

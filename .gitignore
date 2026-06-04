@@ -1,4 +1,9 @@
+# Build artifacts.
 /target/
-Cargo.lock
+
+# Cargo.lock IS committed for this workspace because we ship binaries
+# and need reproducible builds. Do NOT add Cargo.lock here.
+
+# Editor / OS noise.
 *.tmp
 .DS_Store

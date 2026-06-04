@@ -1,0 +1,43 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/a2a-shim",
+    "crates/a2a-shim-core",
+    "crates/a2a-shim-client",
+    "crates/a2a-shim-serve",
+    "tests/mock_acp_agent",
+]
+
+[workspace.package]
+version      = "0.1.0"
+edition      = "2021"
+rust-version = "1.95"
+license      = "Apache-2.0"
+
+[workspace.dependencies]
+tokio                 = { version = "1",    features = ["full"] }
+tokio-util            = { version = "0.7",  features = ["io"] }
+serde                 = { version = "1",    features = ["derive"] }
+serde_json            = "1"
+anyhow                = "1"
+thiserror             = "1"
+tracing               = "0.1"
+tracing-subscriber    = { version = "0.3",  features = ["json", "env-filter"] }
+clap                  = { version = "4",    features = ["derive", "env"] }
+uuid                  = { version = "1",    features = ["v4", "serde"] }
+miette                = { version = "7",    features = ["fancy"] }
+toml                  = "0.8"
+axum                  = { version = "0.7",  features = ["json"] }
+reqwest               = { version = "0.12", default-features = false, features = ["rustls-tls", "stream", "json"] }
+eventsource-stream    = "0.2"
+futures               = "0.3"
+bytes                 = "1"
+parking_lot           = "0.12"
+agent-client-protocol = "0.13"
+
+[profile.release]
+opt-level     = 3
+lto           = "thin"
+codegen-units = 1
+strip         = true
+panic         = "abort"
