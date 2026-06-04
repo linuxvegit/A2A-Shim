@@ -6,4 +6,5 @@
 
 # Editor / OS noise.
 *.tmp
-.DS_Storereview.html
+.DS_Store
+review.html

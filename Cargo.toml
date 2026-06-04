@@ -7,6 +7,10 @@ members = [
     "crates/a2a-shim-serve",
     "tests/mock_acp_agent",
 ]
+exclude = [
+    "verify",
+    "verify-v1.1",
+]
 
 [workspace.package]
 version      = "0.1.0"
