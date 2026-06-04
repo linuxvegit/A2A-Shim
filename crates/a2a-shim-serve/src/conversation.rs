@@ -72,14 +72,26 @@ pub struct ConversationMap {
     inner: Arc<RwLock<HashMap<String, Arc<Conversation>>>>,
     max_active: u32,
     idle_window: Duration,
+    persistence: Option<crate::persistence::Persistence>,
 }
 
 impl ConversationMap {
     pub fn new(max_active: u32, idle_window: Duration) -> Self {
+        Self::with_persistence(max_active, idle_window, None)
+    }
+
+    /// Construct with an optional Persistence handle. When Some, every
+    /// create / delete is written through to SQLite (ADR 0007).
+    pub fn with_persistence(
+        max_active: u32,
+        idle_window: Duration,
+        persistence: Option<crate::persistence::Persistence>,
+    ) -> Self {
         Self {
             inner: Arc::new(RwLock::new(HashMap::new())),
             max_active,
             idle_window,
+            persistence,
         }
     }
 
@@ -135,6 +147,35 @@ impl ConversationMap {
         Ok((conv, true))
     }
 
+    /// Variant of `get_or_create` that also writes the conversation row
+    /// into Persistence (when configured) with the supplied `cwd` +
+    /// `caller_id` metadata. The cwd/caller_id are NOT mutated on
+    /// subsequent hits — they're only persisted on first creation.
+    pub async fn get_or_create_with_meta<F, Fut, E>(
+        &self,
+        id: &str,
+        cwd: &str,
+        caller_id: &str,
+        spawn: F,
+    ) -> Result<(Arc<Conversation>, bool), NewError<E>>
+    where
+        F: FnOnce() -> Fut,
+        Fut: std::future::Future<Output = Result<SessionId, E>>,
+    {
+        let (conv, created) = self.get_or_create(id, spawn).await?;
+        if created {
+            if let Some(p) = self.persistence.as_ref() {
+                if let Err(e) = p
+                    .insert_conversation(id, &conv.acp_session_id, cwd, caller_id)
+                    .await
+                {
+                    tracing::warn!(conv = %id, error = %e, "persistence insert failed");
+                }
+            }
+        }
+        Ok((conv, created))
+    }
+
     /// Try to acquire the H1 single-in-flight permit. Synchronous (no
     /// awaiting on the lock) so overlap is reported as `Busy` rather than
     /// silently serialized.
@@ -151,7 +192,8 @@ impl ConversationMap {
 
     /// Evict entries whose last_used_at is older than the idle window.
     /// Returns the evicted ids so the caller can issue session/cancel
-    /// against the underlying ACP sessions.
+    /// against the underlying ACP sessions. DB rows are removed in
+    /// lockstep when a Persistence handle is wired.
     pub async fn sweep_idle(&self) -> Vec<String> {
         let now = Instant::now();
         let mut to_drop = Vec::new();
@@ -168,6 +210,13 @@ impl ConversationMap {
             let mut w = self.inner.write().await;
             for k in &to_drop {
                 w.remove(k);
+            }
+        }
+        if let Some(p) = self.persistence.as_ref() {
+            for k in &to_drop {
+                if let Err(e) = p.delete_conversation(k).await {
+                    tracing::warn!(conv = %k, error = %e, "persistence delete on sweep failed");
+                }
             }
         }
         to_drop

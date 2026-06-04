@@ -77,6 +77,7 @@ impl TaskBinding {
 #[derive(Clone, Default)]
 pub struct TaskRegistry {
     inner: Arc<Mutex<RegistryInner>>,
+    persistence: Option<crate::persistence::Persistence>,
 }
 
 #[derive(Default)]
@@ -91,6 +92,16 @@ impl TaskRegistry {
         Self::default()
     }
 
+    /// Construct with an optional Persistence handle. When Some, every
+    /// task create / transition / cancel is written through to SQLite
+    /// (ADR 0007).
+    pub fn with_persistence(persistence: Option<crate::persistence::Persistence>) -> Self {
+        Self {
+            inner: Arc::new(Mutex::new(RegistryInner::default())),
+            persistence,
+        }
+    }
+
     /// Create a fresh Task in `Submitted` and return its newly minted id.
     pub async fn create(&self, conversation_id: &str, acp_session_id: &str) -> TaskId {
         let id = TaskId::new_random();
@@ -103,9 +114,19 @@ impl TaskRegistry {
             artifacts: Vec::new(),
             sink,
         };
-        let mut inner = self.inner.lock();
-        inner.bindings.insert(id.clone(), binding);
-        inner.order.push(id.clone());
+        {
+            let mut inner = self.inner.lock();
+            inner.bindings.insert(id.clone(), binding);
+            inner.order.push(id.clone());
+        }
+        if let Some(p) = self.persistence.as_ref() {
+            if let Err(e) = p
+                .record_task(id.as_str(), conversation_id, "submitted")
+                .await
+            {
+                tracing::warn!(task = %id, error = %e, "persistence record_task(create) failed");
+            }
+        }
         id
     }
 
@@ -113,12 +134,20 @@ impl TaskRegistry {
     /// graph. Use `cancel()` instead of `transition(_, Canceled)` for
     /// user-initiated cancels so the error mapping comes out right.
     pub async fn transition(&self, id: &TaskId, to: TaskState) -> Result<(), TransitionError> {
-        let mut map = self.inner.lock();
-        let binding = map.bindings.get_mut(id).ok_or(TransitionError::NotFound)?;
-        if !is_legal(binding.state, to) {
-            return Err(TransitionError::Illegal);
+        let conv_id = {
+            let mut map = self.inner.lock();
+            let binding = map.bindings.get_mut(id).ok_or(TransitionError::NotFound)?;
+            if !is_legal(binding.state, to) {
+                return Err(TransitionError::Illegal);
+            }
+            binding.state = to;
+            binding.conversation_id.clone()
+        };
+        if let Some(p) = self.persistence.as_ref() {
+            if let Err(e) = p.record_task(id.as_str(), &conv_id, state_str(to)).await {
+                tracing::warn!(task = %id, error = %e, "persistence record_task(transition) failed");
+            }
         }
-        binding.state = to;
         Ok(())
     }
 
@@ -138,12 +167,20 @@ impl TaskRegistry {
     /// User-initiated cancel. Rejects with `NotCancelable` if the Task is
     /// already terminal (spec maps to JSON-RPC -32002 TASK_NOT_CANCELABLE).
     pub async fn cancel(&self, id: &TaskId) -> Result<(), TransitionError> {
-        let mut map = self.inner.lock();
-        let binding = map.bindings.get_mut(id).ok_or(TransitionError::NotFound)?;
-        if binding.state.is_terminal() {
-            return Err(TransitionError::NotCancelable);
+        let conv_id = {
+            let mut map = self.inner.lock();
+            let binding = map.bindings.get_mut(id).ok_or(TransitionError::NotFound)?;
+            if binding.state.is_terminal() {
+                return Err(TransitionError::NotCancelable);
+            }
+            binding.state = TaskState::Canceled;
+            binding.conversation_id.clone()
+        };
+        if let Some(p) = self.persistence.as_ref() {
+            if let Err(e) = p.record_task(id.as_str(), &conv_id, "canceled").await {
+                tracing::warn!(task = %id, error = %e, "persistence record_task(cancel) failed");
+            }
         }
-        binding.state = TaskState::Canceled;
         Ok(())
     }
 
@@ -254,5 +291,19 @@ fn is_legal(from: TaskState, to: TaskState) -> bool {
         // cancel() for the right error mapping.
         (Submitted | Working | InputRequired, Canceled) => true,
         _ => false,
+    }
+}
+
+/// Wire-format string for a TaskState (matches the kebab-case serde
+/// representation in a2a_shim_core::wire::task::TaskState).
+fn state_str(s: TaskState) -> &'static str {
+    use TaskState::*;
+    match s {
+        Submitted => "submitted",
+        Working => "working",
+        InputRequired => "input-required",
+        Completed => "completed",
+        Failed => "failed",
+        Canceled => "canceled",
     }
 }
