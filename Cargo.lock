@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "a2a-shim"
-version = "0.1.0"
+version = "1.1.0"
 dependencies = [
  "a2a-shim-client",
  "a2a-shim-core",
@@ -23,7 +23,7 @@ dependencies = [
 
 [[package]]
 name = "a2a-shim-client"
-version = "0.1.0"
+version = "1.1.0"
 dependencies = [
  "a2a-shim-core",
  "async-stream",
@@ -47,7 +47,7 @@ dependencies = [
 
 [[package]]
 name = "a2a-shim-core"
-version = "0.1.0"
+version = "1.1.0"
 dependencies = [
  "parking_lot",
  "serde",
@@ -62,7 +62,7 @@ dependencies = [
 
 [[package]]
 name = "a2a-shim-serve"
-version = "0.1.0"
+version = "1.1.0"
 dependencies = [
  "a2a-shim-core",
  "agent-client-protocol",
@@ -1553,7 +1553,7 @@ dependencies = [
 
 [[package]]
 name = "mock_acp_agent"
-version = "0.1.0"
+version = "1.1.0"
 dependencies = [
  "agent-client-protocol",
  "anyhow",

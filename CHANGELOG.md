@@ -4,6 +4,131 @@ All notable changes to A2A-Shim are recorded here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning
 follows [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] — 2026-06-04
+
+Second release. Hard cutover from A2A v0.x to v1.0.1 wire, multi-modal
+content, server-side streaming surfaced as MCP progress, durable conversation
+state across restart, multi-tenant `caller_id` partitioning, explicit
+`conversation_mode` (`new` / `continue` / `auto`), webhook push notifications,
+a Prometheus `/metrics` endpoint, and an out-of-band `_shim/conversation/reset`
+escape hatch. v1.1 spec lives in
+[`docs/superpowers/specs/2026-06-04-a2a-shim-v1.1.md`](docs/superpowers/specs/2026-06-04-a2a-shim-v1.1.md).
+
+### Breaking — A2A v1.0.1 wire (ADR 0005)
+
+- `Part` is now untagged member-presence: `{text}`, `{data, …}`,
+  `{file: {raw|url, mediaType, filename?}}`. The legacy `{"type":"text",…}`
+  shape no longer parses (`v0_legacy_type_tagged_form_no_longer_parses_as_text`).
+- JSON-RPC method names are PascalCase: `SendMessage`, `SendStreamingMessage`,
+  `GetTask`, `CancelTask`, `SubscribeToTask`, `ListTasks`,
+  `{Create,Get,List,Delete}TaskPushNotificationConfig`.
+- SSE frames wrap state in `{statusUpdate: {…}}` / `{artifactUpdate: {…}}`
+  envelopes (`wire::sse::SseEvent::{status, artifact}`).
+- No legacy compat flag — operators on v0.x must upgrade both ends in lockstep.
+
+### Added — Multi-modal (ADR 0006)
+
+- `a2a-shim-serve::translate`: bidirectional `Part` ↔ ACP `ContentBlock`
+  mapping with `PartCaps {image, audio, embedded_context}` capability gating
+  on inbound; unknown variants drop with `tracing::warn`. Outbound mapping
+  emits text / image / audio / resource-link / embedded-resource.
+- New `--max-part-bytes` cap (default 10 MiB) enforced before translate
+  via `translate::validate_parts`; oversized parts return `INVALID_PARAMS`.
+- mock_acp_agent gains `multimodal`, `streamy`, `resumable`, `echo` scripts.
+
+### Added — G2 streaming (Tasks 15+16)
+
+- `Heartbeat::append_text` plus a 4 KiB UTF-8-safe accumulated buffer; tick
+  precedence is explicit summary > tail of accumulated > null. Agent text
+  chunks now surface as MCP `notifications/progress` messages on the calling
+  Host without a parallel side channel.
+
+### Added — Persistence (ADR 0007)
+
+- `a2a-shim-serve::persistence`: rusqlite + `parking_lot::Mutex` +
+  `spawn_blocking`. v1 schema = `conversations` + `tasks` +
+  `push_notification_configs` with FK cascades and a `_schema_version`
+  migration ladder.
+- `[server.persistence]` block; on by default at `./a2a-shim.db`.
+  Failures degrade to `tracing::warn` — in-memory remains the source of truth.
+- `ConversationMap` + `TaskRegistry` write-through on create / transition /
+  cancel / sweep_idle.
+- `persistence::recovery::bootstrap` replays surviving rows on startup;
+  batches `session/load` (concurrency 8) against the configured agent.
+  Agents (e.g. `claude-agent-acp`) replay prior turns as session/update
+  notifications, so we do not persist `Task.history`/`artifacts`.
+
+### Added — Multi-tenant (Tasks 26+27)
+
+- `[server.caller_identity]` block: `enabled`, `default_caller_id`,
+  `trust_header`. Resolution order: trusted `x-a2a-shim/caller_id` header >
+  `_shim_caller_id` metadata > configured default.
+- Conversation keys become `caller_id\x1Fconv_id` (US separator) so a single
+  `ConversationMap` partitions cleanly without generic plumbing.
+- Client Shim exposes a `caller_id` MCP tool arg that injects into outbound
+  message metadata.
+
+### Added — Conversation lifecycle (Task 29)
+
+- Client Shim exposes a `conversation_mode` MCP tool arg
+  (`new` | `continue` | `auto`, default `auto`).
+- Server-side dispatch parses `_shim_conversation_mode` from params:
+  `new` on an existing key → `CONVERSATION_EXISTS` (-32012);
+  `continue` on a missing key → `CONVERSATION_LOST` (-32013).
+- `_shim/conversation/reset` cancels every non-terminal task on the key,
+  cancels the ACP session, deletes the persisted row, evicts the map.
+
+### Added — Push notifications (ADR 0008)
+
+- `[server.push_notifications]` block. Four JSON-RPC methods:
+  `{Create,Get,List,Delete}TaskPushNotificationConfig` with persistence-backed
+  registry.
+- 8-worker `tokio::mpsc` delivery pool. Retry policy: 3 attempts, 1s/3s/9s
+  exponential backoff. `Authentication` and `token` pass through verbatim.
+- v1.1 fires deliveries on terminal transitions only; richer cadences land in
+  a future release.
+
+### Added — Observability (Tasks 36-38)
+
+- `[server.metrics]` block. `/metrics` route exposes Prometheus exposition
+  via `metrics-exporter-prometheus`.
+- `a2a_shim_messages_total{method,outcome}`,
+  `a2a_shim_conversations_active`,
+  `a2a_shim_task_duration_seconds{terminal_state}` histogram,
+  `a2a_shim_push_delivery_total{outcome}`.
+
+### Changed
+
+- 4 new error codes wired through `error::codes` and `ErrorKind`:
+  `CONVERSATION_EXISTS` (-32012), `CONVERSATION_LOST` (-32013),
+  `PUSH_NOTIFICATIONS_NOT_SUPPORTED` (-32030),
+  `INVALID_PUSH_NOTIFICATION_CONFIG` (-32031).
+- `SseSink::subscribe` softened to `Option<Receiver>` so `SubscribeToTask`
+  can re-attach late.
+- `TaskRegistry` gains pagination: `list(after, limit) -> (Vec<Task>, Option<TaskId>)`.
+- `Heartbeat` removes the historical `chunk_count` field; cadence and threshold
+  acceleration deferred to v1.2.
+
+### Deferred to v1.2
+
+- Outbound capability gating (today's `PartCaps::default()` is all-off for
+  inbound only).
+- Heartbeat cadence acceleration (30s → 1s under stream pressure) and
+  threshold-based emission (50 chars).
+- `axum::extract::RequestBodyLimit` and per-part outbound size check on the
+  Client Shim (per-part inbound validation already enforces the spirit).
+- Push deliveries on richer transitions (today: terminal only).
+- `ConversationLost` surfaces as a `ProtocolError` on the Client Shim instead
+  of a typed MCP error result.
+
+### Stats
+
+- 47 v1.1 tasks across 7 phases; ~50 commits on master since the `v0.1.0` tag.
+- 164+ tests across 55 test binaries green; `cargo fmt --all --check` and
+  `cargo clippy --workspace --all-targets -- -D warnings` clean.
+- New ADRs: 0005 (wire cutover), 0006 (multi-modal mapping),
+  0007 (persistence), 0008 (push notifications).
+
 ## [0.1.0] — 2026-06-04
 
 The MVP. Ships the bidirectional shim between ACP agents and Google's A2A
