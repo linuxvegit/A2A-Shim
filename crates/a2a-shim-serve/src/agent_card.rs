@@ -31,7 +31,7 @@ pub fn build_agent_card(cfg: &ServeConfig, bound: &str) -> AgentCard {
         url,
         capabilities: AgentCapabilities {
             streaming: true,
-            push_notifications: false,
+            push_notifications: cfg.server.push_notifications.enabled,
             state_transition_history: true,
         },
         default_input_modes: DEFAULT_MODES.iter().map(|s| s.to_string()).collect(),

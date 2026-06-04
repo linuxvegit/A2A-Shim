@@ -49,6 +49,8 @@ pub struct ServerConfig {
     pub persistence: PersistenceConfig,
     #[serde(default)]
     pub caller_identity: CallerIdentityConfig,
+    #[serde(default)]
+    pub push_notifications: PushNotificationsConfig,
 }
 impl Default for ServerConfig {
     fn default() -> Self {
@@ -59,6 +61,7 @@ impl Default for ServerConfig {
             conversations: Default::default(),
             persistence: Default::default(),
             caller_identity: Default::default(),
+            push_notifications: Default::default(),
             max_part_bytes: d_max_part_bytes(),
         }
     }
@@ -124,6 +127,61 @@ fn d_true() -> bool {
 }
 fn d_caller_anonymous() -> String {
     "anonymous".into()
+}
+
+/// Push-notification settings (ADR 0008).
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct PushNotificationsConfig {
+    /// Default ON in v1.1. When false, the four push-notif methods
+    /// return PUSH_NOTIFICATIONS_NOT_SUPPORTED (-32030) and the
+    /// AgentCard advertises pushNotifications: false.
+    #[serde(default = "d_true")]
+    pub enabled: bool,
+    #[serde(default = "d_max_attempts")]
+    pub max_attempts: usize,
+    #[serde(default = "d_backoff_base_secs")]
+    pub backoff_base_secs: u64,
+    #[serde(default = "d_backoff_factor")]
+    pub backoff_factor: u64,
+    /// Delete the config after M consecutive permanent failures
+    /// (4xx other than 408/429). ADR 0008.
+    #[serde(default = "d_perm_failure_threshold")]
+    pub permanent_failure_threshold: u32,
+    #[serde(default = "d_http_connect_secs")]
+    pub http_connect_timeout_secs: u64,
+    #[serde(default = "d_http_req_secs")]
+    pub http_request_timeout_secs: u64,
+}
+impl Default for PushNotificationsConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            max_attempts: d_max_attempts(),
+            backoff_base_secs: d_backoff_base_secs(),
+            backoff_factor: d_backoff_factor(),
+            permanent_failure_threshold: d_perm_failure_threshold(),
+            http_connect_timeout_secs: d_http_connect_secs(),
+            http_request_timeout_secs: d_http_req_secs(),
+        }
+    }
+}
+fn d_max_attempts() -> usize {
+    3
+}
+fn d_backoff_base_secs() -> u64 {
+    1
+}
+fn d_backoff_factor() -> u64 {
+    3
+}
+fn d_perm_failure_threshold() -> u32 {
+    10
+}
+fn d_http_connect_secs() -> u64 {
+    5
+}
+fn d_http_req_secs() -> u64 {
+    10
 }
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ConversationsConfig {

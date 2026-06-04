@@ -52,6 +52,8 @@ pub struct ServeState {
     pub conversations: ConversationMap,
     pub tasks: TaskRegistry,
     pub persistence: Option<crate::persistence::Persistence>,
+    pub push_registry: crate::push_delivery::PushConfigRegistry,
+    pub push_tx: Option<tokio::sync::mpsc::UnboundedSender<crate::push_delivery::DeliveryJob>>,
 }
 
 impl ServeState {
@@ -70,6 +72,10 @@ impl ServeState {
             Duration::from_secs(cfg.server.conversations.idle_secs),
             persistence.clone(),
         );
+        let push_registry = crate::push_delivery::PushConfigRegistry::new(
+            persistence.clone(),
+            cfg.server.push_notifications.permanent_failure_threshold,
+        );
         Self {
             cfg,
             bound: Arc::new(OnceLock::new()),
@@ -77,6 +83,8 @@ impl ServeState {
             conversations: conv,
             tasks: TaskRegistry::with_persistence(persistence.clone()),
             persistence,
+            push_registry,
+            push_tx: None,
         }
     }
 
@@ -100,6 +108,14 @@ impl ServeState {
         let mut s = Self::new_with_persistence(cfg, persistence);
         s.acp = Some(Arc::new(client));
         s
+    }
+
+    /// Wire the push delivery worker mpsc sender onto state.
+    pub fn set_push_tx(
+        &mut self,
+        tx: tokio::sync::mpsc::UnboundedSender<crate::push_delivery::DeliveryJob>,
+    ) {
+        self.push_tx = Some(tx);
     }
 
     pub fn set_bound(&self, addr: SocketAddr) {
@@ -186,8 +202,16 @@ async fn dispatch(
         "GetTask" => handle_tasks_get(state, req.params.clone()).await,
         "CancelTask" => handle_tasks_cancel(state, req.params.clone()).await,
         "ListTasks" => handle_list_tasks(state, req.params.clone()).await,
+        "CreateTaskPushNotificationConfig" => {
+            handle_push_create(state, req.params.clone()).await
+        }
+        "GetTaskPushNotificationConfig" => handle_push_get(state, req.params.clone()).await,
+        "ListTaskPushNotificationConfigs" => handle_push_list(state, req.params.clone()).await,
+        "DeleteTaskPushNotificationConfig" => {
+            handle_push_delete(state, req.params.clone()).await
+        }
         // SendStreamingMessage / SubscribeToTask handled above as SSE.
-        // push-notif methods in Task 32; _shim/conversation/reset in Task 39.
+        // _shim/conversation/reset in Task 39.
         other => Err(JsonRpcError {
             code: codes::METHOD_NOT_FOUND,
             message: format!("method not found: {other}"),
@@ -401,6 +425,11 @@ async fn handle_message_send(
             message: "task vanished mid-prompt".into(),
             data: None,
         })?;
+    // v1.1 item #6: on terminal transition, enqueue push delivery
+    // jobs for any registered configs (ADR 0008 trigger).
+    if snap.status.state.is_terminal() {
+        enqueue_push_for_terminal(&state, &snap);
+    }
     Ok(serde_json::to_value(snap).expect("Task serializes"))
 }
 
@@ -819,4 +848,217 @@ fn jsonrpc_error_response(id: Value, err: JsonRpcError) -> axum::response::Respo
     let mut r = Json(resp).into_response();
     *r.status_mut() = StatusCode::OK;
     r
+}
+
+// ─────────────────────── Push Notification Config CRUD ────────────────────
+
+/// JSON body shape for the four push-notif methods (spec A2A v1.0.1 § 3.1.7).
+#[derive(serde::Deserialize)]
+struct PushConfigParams {
+    #[serde(rename = "taskId")]
+    task_id: Option<String>,
+    #[serde(rename = "configId")]
+    config_id: Option<String>,
+    #[serde(rename = "pushNotificationConfig")]
+    push_notification_config: Option<PushNotificationConfigWire>,
+}
+
+#[derive(Clone, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PushNotificationConfigWire {
+    id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tenant: Option<String>,
+    #[serde(rename = "taskId", skip_serializing_if = "Option::is_none")]
+    task_id: Option<String>,
+    url: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    token: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    authentication: Option<AuthenticationInfo>,
+}
+
+#[derive(Clone, serde::Deserialize, serde::Serialize)]
+struct AuthenticationInfo {
+    scheme: String,
+    credentials: String,
+}
+
+fn require_push_enabled(state: &ServeState) -> Result<(), JsonRpcError> {
+    if !state.cfg.server.push_notifications.enabled {
+        return Err(JsonRpcError {
+            code: codes::PUSH_NOTIFICATIONS_NOT_SUPPORTED,
+            message: "push notifications disabled by config".into(),
+            data: None,
+        });
+    }
+    Ok(())
+}
+
+async fn handle_push_create(state: ServeState, params: Value) -> Result<Value, JsonRpcError> {
+    require_push_enabled(&state)?;
+    let parsed: PushConfigParams =
+        serde_json::from_value(params).map_err(invalid_params)?;
+    let cfg = parsed.push_notification_config.ok_or_else(|| JsonRpcError {
+        code: codes::INVALID_PUSH_NOTIFICATION_CONFIG,
+        message: "missing pushNotificationConfig".into(),
+        data: None,
+    })?;
+    let task_id = cfg
+        .task_id
+        .clone()
+        .or(parsed.task_id)
+        .ok_or_else(|| JsonRpcError {
+            code: codes::INVALID_PUSH_NOTIFICATION_CONFIG,
+            message: "missing taskId".into(),
+            data: None,
+        })?;
+    let config_id = cfg
+        .id
+        .clone()
+        .unwrap_or_else(|| uuid::Uuid::new_v4().simple().to_string());
+    let (auth_scheme, auth_credentials) = cfg
+        .authentication
+        .as_ref()
+        .map(|a| (Some(a.scheme.clone()), Some(a.credentials.clone())))
+        .unwrap_or((None, None));
+    let pcfg = crate::push_delivery::PushNotificationConfig {
+        config_id: config_id.clone(),
+        task_id: task_id.clone(),
+        url: cfg.url.clone(),
+        token: cfg.token.clone(),
+        auth_scheme,
+        auth_credentials,
+        tenant: cfg.tenant.clone(),
+    };
+    state
+        .push_registry
+        .insert(pcfg)
+        .await
+        .map_err(|e| JsonRpcError {
+            code: codes::INTERNAL_ERROR,
+            message: format!("push registry insert: {e}"),
+            data: None,
+        })?;
+    let mut out = cfg;
+    out.id = Some(config_id);
+    out.task_id = Some(task_id);
+    Ok(serde_json::to_value(&out).expect("serialize"))
+}
+
+async fn handle_push_get(state: ServeState, params: Value) -> Result<Value, JsonRpcError> {
+    require_push_enabled(&state)?;
+    let parsed: PushConfigParams =
+        serde_json::from_value(params).map_err(invalid_params)?;
+    let cid = parsed.config_id.ok_or_else(|| JsonRpcError {
+        code: codes::INVALID_PARAMS,
+        message: "missing configId".into(),
+        data: None,
+    })?;
+    let cfg = state
+        .push_registry
+        .get(&cid)
+        .await
+        .map_err(|e| JsonRpcError {
+            code: codes::INTERNAL_ERROR,
+            message: format!("push registry get: {e}"),
+            data: None,
+        })?
+        .ok_or_else(|| JsonRpcError {
+            code: codes::TASK_NOT_FOUND,
+            message: format!("push config not found: {cid}"),
+            data: None,
+        })?;
+    Ok(push_config_to_wire(&cfg))
+}
+
+async fn handle_push_list(state: ServeState, params: Value) -> Result<Value, JsonRpcError> {
+    require_push_enabled(&state)?;
+    let parsed: PushConfigParams =
+        serde_json::from_value(params).map_err(invalid_params)?;
+    let task_id = parsed.task_id.ok_or_else(|| JsonRpcError {
+        code: codes::INVALID_PARAMS,
+        message: "missing taskId".into(),
+        data: None,
+    })?;
+    let cfgs = state.push_registry.list_for_task(&task_id);
+    Ok(serde_json::json!({
+        "configs": cfgs.iter().map(push_config_to_wire).collect::<Vec<_>>()
+    }))
+}
+
+async fn handle_push_delete(state: ServeState, params: Value) -> Result<Value, JsonRpcError> {
+    require_push_enabled(&state)?;
+    let parsed: PushConfigParams =
+        serde_json::from_value(params).map_err(invalid_params)?;
+    let cid = parsed.config_id.ok_or_else(|| JsonRpcError {
+        code: codes::INVALID_PARAMS,
+        message: "missing configId".into(),
+        data: None,
+    })?;
+    state
+        .push_registry
+        .delete(&cid)
+        .await
+        .map_err(|e| JsonRpcError {
+            code: codes::INTERNAL_ERROR,
+            message: format!("push registry delete: {e}"),
+            data: None,
+        })?;
+    Ok(serde_json::json!({ "deleted": true }))
+}
+
+fn push_config_to_wire(cfg: &crate::push_delivery::PushNotificationConfig) -> Value {
+    let auth = match (cfg.auth_scheme.as_ref(), cfg.auth_credentials.as_ref()) {
+        (Some(s), Some(c)) => Some(serde_json::json!({ "scheme": s, "credentials": c })),
+        _ => None,
+    };
+    serde_json::json!({
+        "id": cfg.config_id,
+        "taskId": cfg.task_id,
+        "url": cfg.url,
+        "token": cfg.token,
+        "tenant": cfg.tenant,
+        "authentication": auth,
+    })
+}
+
+/// Build + enqueue delivery jobs for every push config registered against
+/// the Task whose snapshot just hit a terminal state. Best-effort:
+/// failures log at debug.
+pub(crate) fn enqueue_push_for_terminal(
+    state: &ServeState,
+    snap: &a2a_shim_core::wire::task::Task,
+) {
+    let Some(tx) = state.push_tx.as_ref() else {
+        return;
+    };
+    let cfgs = state.push_registry.list_for_task(snap.id.as_str());
+    if cfgs.is_empty() {
+        return;
+    }
+    let state_str = match snap.status.state {
+        a2a_shim_core::wire::task::TaskState::Completed => "completed",
+        a2a_shim_core::wire::task::TaskState::Failed => "failed",
+        a2a_shim_core::wire::task::TaskState::Canceled => "canceled",
+        _ => return, // non-terminal — caller is supposed to check
+    };
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0);
+    let payload = crate::push_delivery::build_status_update_payload(
+        snap.id.as_str(),
+        state_str,
+        now_ms,
+    );
+    for cfg in cfgs {
+        let job = crate::push_delivery::DeliveryJob {
+            config: cfg,
+            payload: payload.clone(),
+        };
+        if let Err(e) = tx.send(job) {
+            tracing::debug!(error = %e, "push delivery channel closed");
+        }
+    }
 }

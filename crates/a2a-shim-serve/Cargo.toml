@@ -22,6 +22,7 @@ bytes                 = { workspace = true }
 parking_lot           = { workspace = true }
 tokio-stream          = { workspace = true }
 rusqlite              = { workspace = true }
+reqwest               = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util", "macros", "rt-multi-thread"] }

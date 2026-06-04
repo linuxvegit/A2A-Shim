@@ -50,7 +50,7 @@ async fn agent_card_endpoint_returns_card() {
     );
     let card: AgentCard = resp.json().await.expect("parse AgentCard");
     assert!(card.capabilities.streaming);
-    assert!(!card.capabilities.push_notifications);
+    assert!(card.capabilities.push_notifications, "v1.1: push notifications default ON");
     // URL falls back to http://<bound>/ (no advertised_endpoint in cfg).
     assert!(card.url.starts_with("http://127.0.0.1:"));
 }

@@ -59,6 +59,18 @@ pub struct TaskRow {
     pub terminal_at: Option<i64>,
 }
 
+#[derive(Debug, Clone)]
+pub struct PushConfigRow {
+    pub config_id: String,
+    pub task_id: String,
+    pub url: String,
+    pub token: Option<String>,
+    pub auth_scheme: Option<String>,
+    pub auth_credentials: Option<String>,
+    pub tenant: Option<String>,
+    pub created_at: i64,
+}
+
 impl Persistence {
     /// Wrap an already-open connection. Caller is responsible for
     /// having called `schema::ensure_current` first.
@@ -230,5 +242,114 @@ impl Persistence {
         .await
         .map_err(|_| PersistenceError::DriverGone)??;
         Ok(rows)
+    }
+
+    // ──────────────── push notification configs ────────────────
+
+    pub async fn insert_push_config(
+        &self,
+        row: PushConfigRow,
+    ) -> Result<(), PersistenceError> {
+        let conn = Arc::clone(&self.conn);
+        tokio::task::spawn_blocking(move || -> Result<(), PersistenceError> {
+            conn.lock().execute(
+                "INSERT OR REPLACE INTO push_notification_configs
+                 (config_id, task_id, url, token, auth_scheme, auth_credentials, tenant, created_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                params![
+                    row.config_id,
+                    row.task_id,
+                    row.url,
+                    row.token,
+                    row.auth_scheme,
+                    row.auth_credentials,
+                    row.tenant,
+                    row.created_at,
+                ],
+            )?;
+            Ok(())
+        })
+        .await
+        .map_err(|_| PersistenceError::DriverGone)??;
+        Ok(())
+    }
+
+    pub async fn delete_push_config(&self, config_id: &str) -> Result<(), PersistenceError> {
+        let conn = Arc::clone(&self.conn);
+        let cid = config_id.to_owned();
+        tokio::task::spawn_blocking(move || -> Result<(), PersistenceError> {
+            conn.lock().execute(
+                "DELETE FROM push_notification_configs WHERE config_id = ?1",
+                params![cid],
+            )?;
+            Ok(())
+        })
+        .await
+        .map_err(|_| PersistenceError::DriverGone)??;
+        Ok(())
+    }
+
+    pub async fn list_push_configs_for_task(
+        &self,
+        task_id: &str,
+    ) -> Result<Vec<PushConfigRow>, PersistenceError> {
+        let conn = Arc::clone(&self.conn);
+        let tid = task_id.to_owned();
+        let rows = tokio::task::spawn_blocking(move || -> Result<Vec<PushConfigRow>, PersistenceError> {
+            let c = conn.lock();
+            let mut stmt = c.prepare(
+                "SELECT config_id, task_id, url, token, auth_scheme, auth_credentials, tenant, created_at
+                 FROM push_notification_configs WHERE task_id = ?1 ORDER BY created_at ASC",
+            )?;
+            let mapped = stmt
+                .query_map(params![tid], |r| {
+                    Ok(PushConfigRow {
+                        config_id: r.get(0)?,
+                        task_id: r.get(1)?,
+                        url: r.get(2)?,
+                        token: r.get(3)?,
+                        auth_scheme: r.get(4)?,
+                        auth_credentials: r.get(5)?,
+                        tenant: r.get(6)?,
+                        created_at: r.get(7)?,
+                    })
+                })?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+            Ok(mapped)
+        })
+        .await
+        .map_err(|_| PersistenceError::DriverGone)??;
+        Ok(rows)
+    }
+
+    pub async fn get_push_config(
+        &self,
+        config_id: &str,
+    ) -> Result<Option<PushConfigRow>, PersistenceError> {
+        let conn = Arc::clone(&self.conn);
+        let cid = config_id.to_owned();
+        let row = tokio::task::spawn_blocking(move || -> Result<Option<PushConfigRow>, PersistenceError> {
+            let c = conn.lock();
+            let mut stmt = c.prepare(
+                "SELECT config_id, task_id, url, token, auth_scheme, auth_credentials, tenant, created_at
+                 FROM push_notification_configs WHERE config_id = ?1",
+            )?;
+            let mut iter = stmt.query_map(params![cid], |r| {
+                Ok(PushConfigRow {
+                    config_id: r.get(0)?,
+                    task_id: r.get(1)?,
+                    url: r.get(2)?,
+                    token: r.get(3)?,
+                    auth_scheme: r.get(4)?,
+                    auth_credentials: r.get(5)?,
+                    tenant: r.get(6)?,
+                    created_at: r.get(7)?,
+                })
+            })?;
+            Ok(iter.next().transpose()?)
+        })
+        .await
+        .map_err(|_| PersistenceError::DriverGone)??;
+        Ok(row)
     }
 }

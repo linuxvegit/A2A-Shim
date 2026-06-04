@@ -147,7 +147,36 @@ pub async fn run(opts: ServeRuntimeOpts) -> Result<(), RunError> {
 
     // ----- 6: bind + log -----
     let cfg_arc = Arc::new(cfg);
-    let state = ServeState::with_client_and_persistence(cfg_arc.clone(), acp, persistence.clone());
+    let mut state =
+        ServeState::with_client_and_persistence(cfg_arc.clone(), acp, persistence.clone());
+
+    // ----- 6c: push delivery worker pool (ADR 0008) -----
+    if cfg_arc.server.push_notifications.enabled {
+        let policy = crate::push_delivery::RetryPolicy {
+            max_attempts: cfg_arc.server.push_notifications.max_attempts,
+            backoff_base_secs: cfg_arc.server.push_notifications.backoff_base_secs,
+            backoff_factor: cfg_arc.server.push_notifications.backoff_factor,
+        };
+        let http = reqwest::Client::builder()
+            .connect_timeout(std::time::Duration::from_secs(
+                cfg_arc.server.push_notifications.http_connect_timeout_secs,
+            ))
+            .timeout(std::time::Duration::from_secs(
+                cfg_arc.server.push_notifications.http_request_timeout_secs,
+            ))
+            .build()
+            .map_err(|e| RunError::Persistence(format!("reqwest builder: {e}")))?;
+        let tx = crate::push_delivery::start_worker_pool(
+            8,
+            http,
+            state.push_registry.clone(),
+            policy,
+        );
+        state.set_push_tx(tx);
+        tracing::info!("push delivery: worker pool started (8 workers)");
+    } else {
+        tracing::info!("push delivery: disabled by config");
+    }
 
     // ----- 6b: recovery — restore persisted conversations BEFORE accepting traffic -----
     if let (Some(p), Some(client)) = (persistence.as_ref(), state.acp.as_ref()) {
