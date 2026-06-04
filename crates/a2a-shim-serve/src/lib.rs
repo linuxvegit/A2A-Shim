@@ -9,3 +9,4 @@ pub mod task_registry;
 pub mod permission;
 pub mod elicitation;
 pub mod agent_card;
+pub mod bridge;
