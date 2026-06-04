@@ -12,6 +12,11 @@ fn codes_match_spec_4_6() {
     assert_eq!(codes::TASK_NOT_CANCELABLE, -32002);
     assert_eq!(codes::CONVERSATION_BUSY, -32010);
     assert_eq!(codes::CONVERSATION_LIMIT_REACHED, -32011);
+    // v1.1 additions
+    assert_eq!(codes::CONVERSATION_EXISTS, -32012);
+    assert_eq!(codes::CONVERSATION_LOST, -32013);
+    assert_eq!(codes::PUSH_NOTIFICATIONS_NOT_SUPPORTED, -32030);
+    assert_eq!(codes::INVALID_PUSH_NOTIFICATION_CONFIG, -32031);
 }
 
 #[test]
@@ -40,6 +45,11 @@ fn all_kinds_roundtrip() {
         ErrorKind::ProtocolError,
         ErrorKind::InvalidRequest,
         ErrorKind::ConcurrentCallNotSupported,
+        // v1.1 additions
+        ErrorKind::ConversationLost,
+        ErrorKind::ConversationExists,
+        ErrorKind::PushNotificationsNotSupported,
+        ErrorKind::InvalidPushNotificationConfig,
     ] {
         let env = NormalizedErrorEnvelope(NormalizedError {
             kind,

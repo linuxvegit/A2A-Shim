@@ -15,6 +15,11 @@ pub enum ErrorKind {
     ProtocolError,
     InvalidRequest,
     ConcurrentCallNotSupported,
+    // v1.1 additions
+    ConversationLost,
+    ConversationExists,
+    PushNotificationsNotSupported,
+    InvalidPushNotificationConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
