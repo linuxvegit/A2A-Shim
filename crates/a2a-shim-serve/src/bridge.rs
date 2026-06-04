@@ -21,7 +21,7 @@
 use a2a_shim_core::wire::message::Part;
 use a2a_shim_core::wire::sse::SseEvent;
 use a2a_shim_core::wire::task::{Artifact, TaskId, TaskState, TaskStatus};
-use agent_client_protocol::schema::{ContentBlock, SessionUpdate, StopReason};
+use agent_client_protocol::schema::{SessionUpdate, StopReason};
 use futures::StreamExt;
 use thiserror::Error;
 
@@ -70,11 +70,13 @@ where
         match item {
             Ok(BridgeEvent::Update(boxed_update)) => match *boxed_update {
                 SessionUpdate::AgentMessageChunk(chunk) => {
-                    if let ContentBlock::Text(t) = chunk.content {
-                        let part = Part::Text { text: t.text };
+                    // Translate the ContentBlock into A2A Parts. acp_to_a2a
+                    // handles Text/Image/Audio/ResourceLink/Resource per
+                    // ADR 0006; unknown variants drop with a warn.
+                    let parts = crate::translate::acp_to_a2a(&[chunk.content]);
+                    for part in parts {
                         let append = artifact_seen;
                         artifact_seen = true;
-                        // Persist into registry history (merging by artifact_id).
                         let artifact = Artifact {
                             artifact_id: Some(ANSWER_ARTIFACT_ID.into()),
                             name: Some(ANSWER_ARTIFACT_NAME.into()),
@@ -82,7 +84,6 @@ where
                             metadata: None,
                         };
                         let _ = registry.upsert_artifact(&task_id, artifact).await?;
-                        // Publish just the delta as an artifact-update with append.
                         sink.publish_event(SseEvent::artifact(
                             task_id.clone(),
                             Artifact {
@@ -96,9 +97,8 @@ where
                     }
                 }
                 _ => {
-                    // Tool calls, thoughts, plan updates, etc. — out of MVP
-                    // scope. Tracing-only so test output stays readable.
-                    tracing::debug!("ignoring non-text session update");
+                    // Thoughts, tool calls, plan updates — out of MVP scope.
+                    tracing::debug!("ignoring non-content session update");
                 }
             },
             Ok(BridgeEvent::Terminal(reason)) => {
