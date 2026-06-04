@@ -2061,7 +2061,7 @@ PASS. Commit `feat(client): a2a_send tool schema`.
 
 **Files:** `src/mcp_server.rs`, `tests/mcp_loop.rs`; add `pub mod mcp_server;`.
 
-If Phase 0 V2 chose `agent-client-protocol::mcp_server`, use it. Otherwise hand-roll: read NDJSON from stdin via `tokio::io::BufReader<Stdin>::lines()`; dispatch on `method`:
+Hand-roll a small NDJSON dispatch loop (Phase 0 V2 was revised — see verify/REPORT.md): read line-delimited JSON from stdin via `tokio::io::BufReader<Stdin>::lines()`; dispatch on `method`:
 - `initialize` — return server info, protocol version, and `capabilities.tools.listChanged = false`.
 - `tools/list` — return `[tool_definition()]`.
 - `tools/call` with `name = "a2a_send"` — dispatch to the call handler (Task 32).

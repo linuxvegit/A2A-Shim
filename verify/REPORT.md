@@ -45,18 +45,32 @@ The 0.13.1 → 0.40.0 cross-implementation handshake succeeded with no protocol-
 
 ## V2 — Usable MCP server crate for Client Shim stdio loop
 
-**Verdict: PASS — use `agent_client_protocol::mcp_server`**
+**Verdict: REVISED on closer reading — hand-roll the stdio MCP loop**
 
-Investigated candidates:
+Initially I read `agent_client_protocol::mcp_server` as a stdio MCP server
+facility. On revisit during Phase 3 planning, the module docs make clear it
+is the **MCP-over-ACP** transport: infrastructure for letting an ACP Agent
+invoke MCP tools that the ACP *client* hosts. That is the wrong protocol
+direction for the Client Shim, which must serve MCP **to a Host** (Claude
+Code) over stdio JSON-RPC.
 
-1. **`agent-client-protocol::mcp_server`** — built into the crate we already pull for ACP. Documented at
-   `https://docs.rs/agent-client-protocol/0.13.1/agent_client_protocol/mcp_server/`.
-   ✓ Zero additional dependencies. ✓ Stays version-locked with the rest of our ACP code.
-2. `rmcp` (separate crate) — duplicates work for no MVP benefit.
-3. Hand-rolled NDJSON loop — last resort.
+Re-investigated candidates:
 
-**Decision:** Use the built-in `mcp_server` module for the Client Shim stdio loop (Task 29).
-Plan amendment: Task 29's "fallback hand-roll" note can be downgraded to "if a 0.14 incompat appears".
+1. `rmcp = "1.7"` — official Rust MCP SDK. Works but pulls a large
+   transitive tree and adds attack surface for a Client Shim whose hard
+   rule is "stdout = MCP transport, nothing else".
+2. **Hand-roll NDJSON over `tokio::io::BufReader<stdin>` / `stdout`.**
+   The wire surface we need is small (`initialize`, `tools/list`,
+   `tools/call`, `notifications/progress`, `notifications/cancelled`).
+   We already have `JsonRpcRequest`/`JsonRpcResponse`/`JsonRpcError` in
+   `a2a-shim-core::wire::envelope` so 80% of the codec is reused.
+
+**Decision (revised):** hand-roll. Smaller dep blast radius, full
+control over the writer side (which is critical for the
+"no log line ever lands on stdout" guarantee), and we already own the
+JSON-RPC envelope types. If MCP gains required complex types later
+(elicitation, sampling, resources) we can revisit and adopt `rmcp`
+behind a feature flag.
 
 ---
 
