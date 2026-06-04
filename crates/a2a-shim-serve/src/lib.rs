@@ -8,3 +8,4 @@ pub mod acp_client;
 pub mod task_registry;
 pub mod permission;
 pub mod elicitation;
+pub mod agent_card;
