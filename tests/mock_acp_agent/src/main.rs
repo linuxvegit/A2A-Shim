@@ -3,18 +3,21 @@
 //! Not shipped. Speaks the wire format via `agent-client-protocol = "0.13"`
 //! as an Agent role so wire-shape drift fails the build, not at test time.
 //!
-//! Phase 2 scripts (added on demand):
-//!   * `happy`        — answers any prompt with "4" then EndTurn.
+//! Scripts:
+//!   * `happy`      — one chunk "4" then EndTurn (used since v0.1.0).
+//!   * `streamy`    — 5 small chunks 50ms apart for G2 streaming tests.
+//!   * `multimodal` — one Text + one Image ContentBlock then EndTurn.
+//!   * `resumable`  — same as happy on first prompt; accepts LoadSession
+//!                    against any previously-issued session id; on
+//!                    subsequent prompts to a loaded session, replies "ok".
 //!
-//! Future scripts to add when bridge tests (Task 19) need them:
-//!   * `slow` `refusal` `tool-error` `crash` `noop-cancel`.
-//!
-//! Usage: `mock_acp_agent --script happy` (default: happy).
+//! Usage: `mock_acp_agent --script <name>` (default: happy).
 
 use agent_client_protocol::schema::{
-    AgentCapabilities, ContentBlock, ContentChunk, InitializeRequest, InitializeResponse,
-    NewSessionRequest, NewSessionResponse, PromptRequest, PromptResponse, SessionId,
-    SessionNotification, SessionUpdate, StopReason, TextContent,
+    AgentCapabilities, ContentBlock, ContentChunk, ImageContent, InitializeRequest,
+    InitializeResponse, LoadSessionRequest, LoadSessionResponse, NewSessionRequest,
+    NewSessionResponse, PromptRequest, PromptResponse, SessionId, SessionNotification,
+    SessionUpdate, StopReason, TextContent,
 };
 use agent_client_protocol::{Agent, Client, ConnectionTo, Dispatch, Result, Stdio};
 use clap::Parser;
@@ -27,7 +30,11 @@ use std::sync::atomic::{AtomicU64, Ordering};
 )]
 struct Args {
     /// Behaviour script to run.
-    #[arg(long, default_value = "happy", value_parser = ["happy"])]
+    #[arg(
+        long,
+        default_value = "happy",
+        value_parser = ["happy", "streamy", "multimodal", "resumable"]
+    )]
     script: String,
 }
 
@@ -41,8 +48,6 @@ async fn main() -> Result<()> {
     Agent
         .builder()
         .name("mock_acp_agent")
-        // initialize — echo back the requested protocol version with a
-        // minimal agent capabilities advertisement.
         .on_receive_request(
             async move |req: InitializeRequest, responder, _conn| {
                 responder.respond(
@@ -52,7 +57,6 @@ async fn main() -> Result<()> {
             },
             agent_client_protocol::on_receive_request!(),
         )
-        // session/new — fabricate a deterministic session id.
         .on_receive_request(
             async move |_req: NewSessionRequest, responder, _conn| {
                 let n = SESSION_COUNTER.fetch_add(1, Ordering::Relaxed);
@@ -61,7 +65,15 @@ async fn main() -> Result<()> {
             },
             agent_client_protocol::on_receive_request!(),
         )
-        // session/prompt — dispatch to script.
+        // session/load — `resumable` script accepts any session id; other
+        // scripts also accept it as a no-op so tests can probe the call
+        // without crashing the mock.
+        .on_receive_request(
+            async move |_req: LoadSessionRequest, responder, _conn| {
+                responder.respond(LoadSessionResponse::new())
+            },
+            agent_client_protocol::on_receive_request!(),
+        )
         .on_receive_request(
             {
                 let script = script.clone();
@@ -72,8 +84,6 @@ async fn main() -> Result<()> {
             },
             agent_client_protocol::on_receive_request!(),
         )
-        // Catch-all for anything else (e.g. cancel notifications, unknown methods):
-        // respond with internal_error so the SDK doesn't hang the test.
         .on_receive_dispatch(
             async move |message: Dispatch, cx: ConnectionTo<Client>| {
                 message.respond_with_error(
@@ -87,23 +97,59 @@ async fn main() -> Result<()> {
         .await
 }
 
-async fn run_script(script: &str, session_id: SessionId, conn: ConnectionTo<Client>) -> StopReason {
+async fn run_script(
+    script: &str,
+    session_id: SessionId,
+    conn: ConnectionTo<Client>,
+) -> StopReason {
     match script {
-        "happy" => script_happy(session_id, conn).await,
+        "happy" | "resumable" => script_happy(session_id, conn).await,
+        "streamy" => script_streamy(session_id, conn).await,
+        "multimodal" => script_multimodal(session_id, conn).await,
         other => {
-            // Should be unreachable due to clap's value_parser, but fall back
-            // to a clean EndTurn so the runner doesn't deadlock if we mis-add.
             eprintln!("mock_acp_agent: unknown script '{other}', defaulting to no-op EndTurn");
             StopReason::EndTurn
         }
     }
 }
 
-/// Emit one `agent_message_chunk` containing "4" then return `EndTurn`.
+/// One chunk "4" then EndTurn.
 async fn script_happy(session_id: SessionId, conn: ConnectionTo<Client>) -> StopReason {
     let chunk = SessionUpdate::AgentMessageChunk(ContentChunk::new(ContentBlock::Text(
         TextContent::new("4"),
     )));
     let _ = conn.send_notification(SessionNotification::new(session_id, chunk));
+    StopReason::EndTurn
+}
+
+/// 5 small chunks 50ms apart — gives G2 streaming tests room to observe
+/// accumulating text in `notifications/progress.message`.
+async fn script_streamy(session_id: SessionId, conn: ConnectionTo<Client>) -> StopReason {
+    for piece in ["The ", "quick ", "brown ", "fox ", "jumps."] {
+        let chunk = SessionUpdate::AgentMessageChunk(ContentChunk::new(ContentBlock::Text(
+            TextContent::new(piece),
+        )));
+        let _ = conn.send_notification(SessionNotification::new(session_id.clone(), chunk));
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    StopReason::EndTurn
+}
+
+/// One Text + one Image ContentBlock then EndTurn.
+/// Image is a 1×1 transparent PNG (base64) — smallest valid payload.
+async fn script_multimodal(session_id: SessionId, conn: ConnectionTo<Client>) -> StopReason {
+    const TINY_PNG_B64: &str =
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=";
+    let text_chunk = SessionUpdate::AgentMessageChunk(ContentChunk::new(ContentBlock::Text(
+        TextContent::new("Here is an image: "),
+    )));
+    let _ = conn.send_notification(SessionNotification::new(
+        session_id.clone(),
+        text_chunk,
+    ));
+    let image_chunk = SessionUpdate::AgentMessageChunk(ContentChunk::new(ContentBlock::Image(
+        ImageContent::new(TINY_PNG_B64, "image/png"),
+    )));
+    let _ = conn.send_notification(SessionNotification::new(session_id, image_chunk));
     StopReason::EndTurn
 }
