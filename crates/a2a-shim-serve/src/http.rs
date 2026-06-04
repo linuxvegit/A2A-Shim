@@ -216,23 +216,18 @@ async fn handle_message_send(state: ServeState, params: Value) -> Result<Value, 
         state.tasks.create(&conv_id, &conv.acp_session_id).await
     };
 
-    // Extract the user prompt text. Concatenate all text parts so multi-
-    // part prompts work; non-text parts ignored in MVP.
-    let prompt_text = parsed
-        .message
-        .parts
-        .iter()
-        .filter_map(|p| match p {
-            a2a_shim_core::wire::message::Part::Text { text } => Some(text.as_str()),
-            _ => None,
-        })
-        .collect::<Vec<_>>()
-        .join("");
+    // Translate inbound A2A Parts -> ACP ContentBlocks per ADR 0006.
+    // PartCaps defaults to all-off in v1.1; the cap-cache from agent's
+    // initialize response wires through in v1.2. Today: Text + ResourceLink
+    // always pass; Image/Audio/EmbeddedResource/Data require caps=on
+    // (none today) and drop with a tracing warn.
+    let caps = crate::translate::PartCaps::default();
+    let content = crate::translate::a2a_to_acp(&parsed.message.parts, &caps);
 
     // Start the prompt stream and pump through the bridge synchronously.
     let session_id = SessionId::from(conv.acp_session_id.clone());
     let stream = acp
-        .session_prompt(&session_id, &prompt_text)
+        .session_prompt_blocks(&session_id, content)
         .await
         .map_err(|e| JsonRpcError {
             code: codes::INTERNAL_ERROR,
@@ -535,20 +530,12 @@ async fn prepare_prompt(state: ServeState, params: Value) -> Result<PromptHandle
         state.tasks.create(&conv_id, &conv.acp_session_id).await
     };
 
-    let prompt_text = parsed
-        .message
-        .parts
-        .iter()
-        .filter_map(|p| match p {
-            a2a_shim_core::wire::message::Part::Text { text } => Some(text.as_str()),
-            _ => None,
-        })
-        .collect::<Vec<_>>()
-        .join("");
+    let caps = crate::translate::PartCaps::default();
+    let content = crate::translate::a2a_to_acp(&parsed.message.parts, &caps);
 
     let session_id = SessionId::from(conv.acp_session_id.clone());
     let stream = acp
-        .session_prompt(&session_id, &prompt_text)
+        .session_prompt_blocks(&session_id, content)
         .await
         .map_err(|e| JsonRpcError {
             code: codes::INTERNAL_ERROR,

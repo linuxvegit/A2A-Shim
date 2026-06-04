@@ -33,7 +33,7 @@ struct Args {
     #[arg(
         long,
         default_value = "happy",
-        value_parser = ["happy", "streamy", "multimodal", "resumable"]
+        value_parser = ["happy", "streamy", "multimodal", "resumable", "echo"]
     )]
     script: String,
 }
@@ -78,7 +78,7 @@ async fn main() -> Result<()> {
             {
                 let script = script.clone();
                 async move |req: PromptRequest, responder, conn: ConnectionTo<Client>| {
-                    let stop = run_script(&script, req.session_id.clone(), conn).await;
+                    let stop = run_script(&script, req.session_id.clone(), req.prompt, conn).await;
                     responder.respond(PromptResponse::new(stop))
                 }
             },
@@ -100,14 +100,17 @@ async fn main() -> Result<()> {
 async fn run_script(
     script: &str,
     session_id: SessionId,
+    prompt: Vec<ContentBlock>,
     conn: ConnectionTo<Client>,
 ) -> StopReason {
     match script {
         "happy" | "resumable" => script_happy(session_id, conn).await,
         "streamy" => script_streamy(session_id, conn).await,
         "multimodal" => script_multimodal(session_id, conn).await,
+        "echo" => script_echo(session_id, prompt, conn).await,
         other => {
             eprintln!("mock_acp_agent: unknown script '{other}', defaulting to no-op EndTurn");
+            let _ = prompt;
             StopReason::EndTurn
         }
     }
@@ -151,5 +154,33 @@ async fn script_multimodal(session_id: SessionId, conn: ConnectionTo<Client>) ->
         ImageContent::new(TINY_PNG_B64, "image/png"),
     )));
     let _ = conn.send_notification(SessionNotification::new(session_id, image_chunk));
+    StopReason::EndTurn
+}
+
+/// Echoes back a text chunk summarizing what kinds of ContentBlock the
+/// agent received in the prompt. Used by inbound multi-modal tests to
+/// prove that translate::a2a_to_acp actually delivered the parts.
+async fn script_echo(
+    session_id: SessionId,
+    prompt: Vec<ContentBlock>,
+    conn: ConnectionTo<Client>,
+) -> StopReason {
+    let mut summary = String::from("received:");
+    for block in &prompt {
+        let label = match block {
+            ContentBlock::Text(_) => "text",
+            ContentBlock::Image(_) => "image",
+            ContentBlock::Audio(_) => "audio",
+            ContentBlock::ResourceLink(_) => "resource_link",
+            ContentBlock::Resource(_) => "resource",
+            _ => "unknown",
+        };
+        summary.push(' ');
+        summary.push_str(label);
+    }
+    let chunk = SessionUpdate::AgentMessageChunk(ContentChunk::new(ContentBlock::Text(
+        TextContent::new(summary),
+    )));
+    let _ = conn.send_notification(SessionNotification::new(session_id, chunk));
     StopReason::EndTurn
 }

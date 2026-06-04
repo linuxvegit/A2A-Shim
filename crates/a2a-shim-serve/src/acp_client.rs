@@ -96,7 +96,7 @@ enum Command {
     },
     Prompt {
         session_id: SessionId,
-        text: String,
+        content: Vec<ContentBlock>,
         /// Stream end-point: the driver pushes BridgeEvent::Update(...) for
         /// every routed session/update notification, then exactly one
         /// BridgeEvent::Terminal(stop_reason) when the prompt resolves, then
@@ -207,13 +207,22 @@ impl AcpClient {
             .map_err(|e| AcpError::Agent(e.to_string()))
     }
 
-    /// Start a prompt and return a stream that yields BridgeEvent values
-    /// until exactly one Terminal(stop_reason) arrives, after which the
-    /// stream ends.
+    /// Start a prompt with plain text content. Convenience wrapper over
+    /// `session_prompt_blocks` for the common case.
     pub async fn session_prompt(
         &self,
         session_id: &SessionId,
         text: &str,
+    ) -> Result<BoxStream<'static, Result<BridgeEvent, AcpError>>, AcpError> {
+        let blocks = vec![ContentBlock::Text(TextContent::new(text))];
+        self.session_prompt_blocks(session_id, blocks).await
+    }
+
+    /// Start a prompt with arbitrary ContentBlocks (multi-modal).
+    pub async fn session_prompt_blocks(
+        &self,
+        session_id: &SessionId,
+        content: Vec<ContentBlock>,
     ) -> Result<BoxStream<'static, Result<BridgeEvent, AcpError>>, AcpError> {
         let (event_tx, event_rx) = mpsc::unbounded_channel::<Result<BridgeEvent, AcpError>>();
         // Register the route BEFORE sending the Prompt command so any
@@ -224,7 +233,7 @@ impl AcpClient {
 
         let send_res = self.cmd_tx.send(Command::Prompt {
             session_id: session_id.clone(),
-            text: text.to_owned(),
+            content,
             sink: event_tx,
         });
         if send_res.is_err() {
@@ -277,13 +286,10 @@ async fn drive(
             }
             Command::Prompt {
                 session_id,
-                text,
+                content,
                 sink,
             } => {
-                let req = PromptRequest::new(
-                    session_id.clone(),
-                    vec![ContentBlock::Text(TextContent::new(text))],
-                );
+                let req = PromptRequest::new(session_id.clone(), content);
                 let prompt_result = conn.send_request(req).block_task().await;
                 // After the prompt resolves, emit terminal (or error) on
                 // the stream and clear the route. Routing is best-effort:
