@@ -11,3 +11,4 @@ pub mod elicitation;
 pub mod agent_card;
 pub mod bridge;
 pub mod http;
+pub mod run;
