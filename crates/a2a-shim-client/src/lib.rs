@@ -3,3 +3,4 @@
 //! Module surface filled out across Phase 3 tasks 28-33.
 
 pub mod tool_schema;
+pub mod mcp_server;
