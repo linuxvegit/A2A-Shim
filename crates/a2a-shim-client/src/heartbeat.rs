@@ -26,8 +26,16 @@ use tokio_util::sync::CancellationToken;
 
 struct HeartbeatShared {
     progress: AtomicI64,
+    /// Replaced wholesale by `update_summary`.
     message: Mutex<Option<String>>,
+    /// Append-only buffer accumulated by `append_text`. Capped at
+    /// MAX_ACCUM_BYTES; tail is preserved on overflow so the heartbeat
+    /// always shows the most recent text.
+    accumulated: Mutex<String>,
 }
+
+const MAX_ACCUM_BYTES: usize = 4096;
+const TAIL_CHARS: usize = 200;
 
 pub struct Heartbeat {
     shared: Arc<HeartbeatShared>,
@@ -45,6 +53,7 @@ impl Heartbeat {
         let shared = Arc::new(HeartbeatShared {
             progress: AtomicI64::new(0),
             message: Mutex::new(None),
+            accumulated: Mutex::new(String::new()),
         });
         let cancel = CancellationToken::new();
 
@@ -65,12 +74,21 @@ impl Heartbeat {
                         _ = &mut sleep => {}
                     }
                     let progress = shared_for_task.progress.fetch_add(1, Ordering::Relaxed) + 1;
-                    let message: Value = shared_for_task
-                        .message
-                        .lock()
-                        .clone()
-                        .map(Value::String)
-                        .unwrap_or(Value::Null);
+                    // Prefer explicit summary; else last TAIL_CHARS of
+                    // accumulated streaming text; else null. ADR 0003 v1.1.
+                    let message: Value = {
+                        let summary = shared_for_task.message.lock().clone();
+                        if let Some(s) = summary {
+                            Value::String(s)
+                        } else {
+                            let accum = shared_for_task.accumulated.lock();
+                            if accum.is_empty() {
+                                Value::Null
+                            } else {
+                                Value::String(tail_chars(&accum, TAIL_CHARS))
+                            }
+                        }
+                    };
                     let frame = json!({
                         "jsonrpc": "2.0",
                         "method": "notifications/progress",
@@ -95,10 +113,35 @@ impl Heartbeat {
     pub fn update_summary(&self, text: String) {
         *self.shared.message.lock() = Some(text);
     }
+
+    /// Append agent-streamed text to the accumulated buffer. When no
+    /// explicit summary is set, the next tick's `message` field renders
+    /// the last TAIL_CHARS characters of this buffer. ADR 0003 v1.1
+    /// extension (spec § 3 item #2 G2 streaming).
+    pub fn append_text(&self, s: &str) {
+        let mut buf = self.shared.accumulated.lock();
+        buf.push_str(s);
+        if buf.len() > MAX_ACCUM_BYTES {
+            let cutoff = buf.len() - MAX_ACCUM_BYTES;
+            let safe_cutoff = (cutoff..buf.len())
+                .find(|&i| buf.is_char_boundary(i))
+                .unwrap_or(buf.len());
+            *buf = buf[safe_cutoff..].to_string();
+        }
+    }
 }
 
 impl Drop for Heartbeat {
     fn drop(&mut self) {
         self.cancel.cancel();
     }
+}
+
+/// Return the last `max_chars` characters of `s` (not bytes — UTF-8 safe).
+fn tail_chars(s: &str, max_chars: usize) -> String {
+    let total = s.chars().count();
+    if total <= max_chars {
+        return s.to_string();
+    }
+    s.chars().skip(total - max_chars).collect()
 }

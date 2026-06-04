@@ -88,3 +88,60 @@ async fn drop_guard_stops_emissions() {
         "frames after drop: started with {before}"
     );
 }
+
+#[tokio::test(start_paused = true)]
+async fn append_text_shows_in_next_message() {
+    let (tx, mut rx) = mpsc::unbounded_channel::<Value>();
+    let guard = Heartbeat::start(tx, Some(Value::from("tok")), Duration::from_secs(1));
+    tokio::task::yield_now().await;
+
+    guard.append_text("Hello ");
+    guard.append_text("world");
+    tokio::time::advance(Duration::from_millis(1100)).await;
+    tokio::task::yield_now().await;
+
+    let frame = rx.recv().await.expect("got frame");
+    assert_eq!(
+        frame["params"]["message"], "Hello world",
+        "got: {frame}"
+    );
+    drop(guard);
+}
+
+#[tokio::test(start_paused = true)]
+async fn append_text_tail_capped_to_200_chars() {
+    let (tx, mut rx) = mpsc::unbounded_channel::<Value>();
+    let guard = Heartbeat::start(tx, Some(Value::from("tok")), Duration::from_secs(1));
+    tokio::task::yield_now().await;
+
+    // Append 500 chars; expect only the last 200 to appear in the message.
+    let big = "x".repeat(500);
+    guard.append_text(&big);
+    tokio::time::advance(Duration::from_millis(1100)).await;
+    tokio::task::yield_now().await;
+
+    let frame = rx.recv().await.expect("got frame");
+    let msg = frame["params"]["message"].as_str().expect("message string");
+    assert_eq!(msg.len(), 200, "expected tail of 200 chars, got {} chars: {msg}", msg.len());
+    assert!(msg.chars().all(|c| c == 'x'));
+    drop(guard);
+}
+
+#[tokio::test(start_paused = true)]
+async fn update_summary_overrides_append_text() {
+    let (tx, mut rx) = mpsc::unbounded_channel::<Value>();
+    let guard = Heartbeat::start(tx, Some(Value::from("tok")), Duration::from_secs(1));
+    tokio::task::yield_now().await;
+
+    guard.append_text("streamed text");
+    guard.update_summary("explicit summary".into());
+    tokio::time::advance(Duration::from_millis(1100)).await;
+    tokio::task::yield_now().await;
+
+    let frame = rx.recv().await.expect("got frame");
+    assert_eq!(
+        frame["params"]["message"], "explicit summary",
+        "explicit summary should win, got: {frame}"
+    );
+    drop(guard);
+}

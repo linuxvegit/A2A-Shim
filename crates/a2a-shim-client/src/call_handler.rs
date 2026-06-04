@@ -193,7 +193,6 @@ where
         artifacts: vec![],
         metadata: None,
     };
-    let mut chunk_count: u64 = 0;
 
     while let Some(item) = stream.next().await {
         match item {
@@ -214,8 +213,15 @@ where
             }
             Ok(SseEvent::ArtifactUpdate { inner }) => {
                 task.id = inner.task_id;
-                chunk_count += 1;
-                heartbeat.update_summary(format!("streaming chunk {chunk_count}"));
+                // Append any text content from this artifact-update to
+                // the heartbeat's accumulator so the Host sees live
+                // streaming text in notifications/progress (spec § 3
+                // item #2 G2 streaming).
+                for p in &inner.artifact.parts {
+                    if let a2a_shim_core::wire::message::Part::Text { text } = p {
+                        heartbeat.append_text(text);
+                    }
+                }
                 upsert_artifact(&mut task.artifacts, inner.artifact, inner.append);
             }
             Err(e) => {
