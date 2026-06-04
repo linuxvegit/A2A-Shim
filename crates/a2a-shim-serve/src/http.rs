@@ -389,6 +389,9 @@ async fn handle_message_stream(
     state: ServeState,
     req: JsonRpcRequest<Value>,
 ) -> axum::response::Response {
+    if req.method == "SubscribeToTask" {
+        return handle_subscribe_to_task(state, req).await;
+    }
     match prepare_prompt(state.clone(), req.params.clone()).await {
         Ok(PromptHandle {
             task_id,
@@ -410,7 +413,9 @@ async fn handle_message_stream(
             });
             // Per-Task SSE keepalive (spec § 2.12) handled by axum's
             // built-in KeepAlive layer at 30s.
-            let rx = sink.subscribe();
+            let rx = sink
+                .subscribe()
+                .expect("sink is open at message-stream subscribe time");
             let body =
                 tokio_stream::wrappers::BroadcastStream::new(rx).filter_map(|item| async move {
                     match item {
@@ -555,4 +560,86 @@ async fn prepare_prompt(state: ServeState, params: Value) -> Result<PromptHandle
         permit,
         stream,
     })
+}
+
+/// `SubscribeToTask` re-attaches to an existing Task's per-Task SseSink
+/// without consuming the H1 in-flight permit. Spec A2A v1.0.1 § 9.4.6.
+///
+/// Errors:
+///   * unknown task id     -> TASK_NOT_FOUND  (-32001)
+///   * terminal task       -> still returns SSE; the response body
+///                            EOFs immediately because publish_final
+///                            already closed the broadcast channel.
+///                            Operators wanting the cached snapshot
+///                            use GetTask instead.
+async fn handle_subscribe_to_task(
+    state: ServeState,
+    req: JsonRpcRequest<Value>,
+) -> axum::response::Response {
+    let parsed: Result<TaskIdParams, _> = serde_json::from_value(req.params.clone());
+    let params = match parsed {
+        Ok(p) => p,
+        Err(e) => return jsonrpc_error_response(req.id, invalid_params(e)),
+    };
+    let sink = match state.tasks.sink(&params.id).await {
+        Some(s) => s,
+        None => {
+            return jsonrpc_error_response(
+                req.id,
+                JsonRpcError {
+                    code: codes::TASK_NOT_FOUND,
+                    message: format!("task not found: {}", params.id),
+                    data: None,
+                },
+            );
+        }
+    };
+    let rx = match sink.subscribe() {
+        Some(rx) => rx,
+        None => {
+            // Sink already closed (terminal task). Return empty SSE
+            // body — caller's connection EOFs cleanly.
+            return Sse::new(futures::stream::empty::<
+                Result<Event, std::convert::Infallible>,
+            >())
+            .keep_alive(
+                KeepAlive::new()
+                    .interval(a2a_shim_core::constants::SSE_KEEPALIVE_INTERVAL)
+                    .text("keepalive"),
+            )
+            .into_response();
+        }
+    };
+    let body = tokio_stream::wrappers::BroadcastStream::new(rx).filter_map(|item| async move {
+        match item {
+            Ok(SseFrame::Event(ev)) => {
+                let json = serde_json::to_string(&ev).ok()?;
+                Some(Ok::<_, std::convert::Infallible>(
+                    Event::default().data(json),
+                ))
+            }
+            Ok(SseFrame::Keepalive) => None,
+            Err(_) => None,
+        }
+    });
+    Sse::new(body)
+        .keep_alive(
+            KeepAlive::new()
+                .interval(a2a_shim_core::constants::SSE_KEEPALIVE_INTERVAL)
+                .text("keepalive"),
+        )
+        .into_response()
+}
+
+/// Small helper to render an error envelope as an axum Response so the
+/// caller doesn't need to repeat the JSON-RPC framing.
+fn jsonrpc_error_response(id: Value, err: JsonRpcError) -> axum::response::Response {
+    let resp: JsonRpcResponse<Value> = JsonRpcResponse {
+        jsonrpc: "2.0".into(),
+        id,
+        result_or_error: ResultOrError::from_error(err),
+    };
+    let mut r = Json(resp).into_response();
+    *r.status_mut() = StatusCode::OK;
+    r
 }

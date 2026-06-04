@@ -19,7 +19,7 @@ fn status(state: TaskState, final_: bool) -> SseEvent {
 #[tokio::test]
 async fn subscriber_receives_event_then_final_closes_channel() {
     let sink = SseSink::new(8);
-    let mut rx = sink.subscribe();
+    let mut rx = sink.subscribe().expect("sink open");
 
     sink.publish_event(status(TaskState::Working, false));
     sink.publish_final(status(TaskState::Completed, true));
@@ -56,7 +56,7 @@ async fn subscriber_receives_event_then_final_closes_channel() {
 #[tokio::test(start_paused = true)]
 async fn keepalive_emitted_at_interval() {
     let sink = SseSink::new(8);
-    let mut rx = sink.subscribe();
+    let mut rx = sink.subscribe().expect("sink open");
     sink.start_keepalive(Duration::from_secs(1));
     tokio::time::advance(Duration::from_millis(1100)).await;
     let frame = rx.recv().await.expect("recv ok");
@@ -68,7 +68,7 @@ async fn publish_after_final_is_noop() {
     // Defensive: caller might mistakenly publish more events after the
     // terminal one. We must not panic and must not deliver them.
     let sink = SseSink::new(8);
-    let mut rx = sink.subscribe();
+    let mut rx = sink.subscribe().expect("sink open");
     sink.publish_final(status(TaskState::Completed, true));
     let _ = timeout(Duration::from_secs(1), rx.recv()).await.unwrap();
     // Channel closed.

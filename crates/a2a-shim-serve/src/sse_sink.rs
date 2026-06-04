@@ -52,15 +52,15 @@ impl SseSink {
     /// the capacity window are also delivered, per `tokio::sync::broadcast`
     /// semantics.
     ///
-    /// Panics if called after `publish_final` has dropped the sender; that
-    /// is a programming error — handlers must subscribe before the Task
-    /// reaches a terminal state.
-    pub fn subscribe(&self) -> broadcast::Receiver<SseFrame> {
-        self.tx
-            .lock()
-            .as_ref()
-            .expect("SseSink::subscribe called after publish_final")
-            .subscribe()
+    /// Returns `None` if `publish_final` has already dropped the sender.
+    /// SubscribeToTask (A2A v1.0 § 9.4.6) intentionally allows late
+    /// subscribers — the handler converts `None` into an empty SSE body
+    /// so the caller's connection EOFs cleanly. The original v0.1.0
+    /// caller (the `message/stream` branch) calls `subscribe()` before
+    /// the bridge spawns and panics on `None` via `expect("…")` since
+    /// in that flow the sink should always be open.
+    pub fn subscribe(&self) -> Option<broadcast::Receiver<SseFrame>> {
+        self.tx.lock().as_ref().map(|tx| tx.subscribe())
     }
 
     fn publish(&self, frame: SseFrame) {

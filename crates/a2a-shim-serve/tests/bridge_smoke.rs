@@ -51,7 +51,7 @@ async fn happy_path_chunk_then_completed() {
     let registry = TaskRegistry::new();
     let task_id = registry.create("alice/review", sid.0.as_ref()).await;
     let sink = registry.sink(&task_id).await.expect("sink");
-    let mut rx = sink.subscribe();
+    let mut rx = sink.subscribe().expect("sink open");
 
     let stream = client
         .session_prompt(&sid, "what is 2+2?")
