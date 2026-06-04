@@ -47,6 +47,8 @@ pub struct ServerConfig {
     pub conversations: ConversationsConfig,
     #[serde(default)]
     pub persistence: PersistenceConfig,
+    #[serde(default)]
+    pub caller_identity: CallerIdentityConfig,
 }
 impl Default for ServerConfig {
     fn default() -> Self {
@@ -56,6 +58,7 @@ impl Default for ServerConfig {
             agent_card_path: d_card_path(),
             conversations: Default::default(),
             persistence: Default::default(),
+            caller_identity: Default::default(),
             max_part_bytes: d_max_part_bytes(),
         }
     }
@@ -86,6 +89,41 @@ fn d_persistence_enabled() -> bool {
 }
 fn d_persistence_path() -> Option<std::path::PathBuf> {
     Some(std::path::PathBuf::from("./a2a-shim.db"))
+}
+
+/// Caller-identity partitioning (spec § 5 item #4).
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct CallerIdentityConfig {
+    /// When false (default): preserves v0.1.0 behavior — ConversationMap
+    /// keyed only by conversation_id; caller_id never partitions.
+    #[serde(default = "d_false")]
+    pub enabled: bool,
+    /// Fallback when no header or metadata caller_id supplied.
+    #[serde(default = "d_caller_anonymous")]
+    pub default_caller_id: String,
+    /// When true (default), honor the X-A2A-Caller-Id request header.
+    /// Set false if the shim is exposed directly to untrusted callers
+    /// without an authenticating reverse proxy in front.
+    #[serde(default = "d_true")]
+    pub trust_header: bool,
+}
+impl Default for CallerIdentityConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            default_caller_id: d_caller_anonymous(),
+            trust_header: true,
+        }
+    }
+}
+fn d_false() -> bool {
+    false
+}
+fn d_true() -> bool {
+    true
+}
+fn d_caller_anonymous() -> String {
+    "anonymous".into()
 }
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ConversationsConfig {

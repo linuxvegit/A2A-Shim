@@ -141,15 +141,26 @@ async fn agent_card_handler(State(state): State<ServeState>) -> impl IntoRespons
 
 async fn jsonrpc_root(
     State(state): State<ServeState>,
+    headers: axum::http::HeaderMap,
     Json(req): Json<JsonRpcRequest<Value>>,
 ) -> axum::response::Response {
+    // Resolve caller_id once per request. Used by SendMessage /
+    // SendStreamingMessage handlers when [server.caller_identity].enabled.
+    let header_caller = if state.cfg.server.caller_identity.trust_header {
+        headers
+            .get("X-A2A-Caller-Id")
+            .and_then(|v| v.to_str().ok())
+            .map(|s| s.to_string())
+    } else {
+        None
+    };
     // message/stream needs to return an SSE body, not JSON. All other
     // methods route through the JSON dispatch + envelope path.
     if req.method == "SendStreamingMessage" || req.method == "SubscribeToTask" {
-        return handle_message_stream(state, req).await;
+        return handle_message_stream(state, req, header_caller).await;
     }
     let id = req.id.clone();
-    let result = dispatch(state, &req).await;
+    let result = dispatch(state, &req, header_caller).await;
     let resp = match result {
         Ok(v) => JsonRpcResponse {
             jsonrpc: "2.0".into(),
@@ -165,15 +176,18 @@ async fn jsonrpc_root(
     Json(resp).into_response()
 }
 
-async fn dispatch(state: ServeState, req: &JsonRpcRequest<Value>) -> Result<Value, JsonRpcError> {
+async fn dispatch(
+    state: ServeState,
+    req: &JsonRpcRequest<Value>,
+    header_caller: Option<String>,
+) -> Result<Value, JsonRpcError> {
     match req.method.as_str() {
-        "SendMessage" => handle_message_send(state, req.params.clone()).await,
+        "SendMessage" => handle_message_send(state, req.params.clone(), header_caller).await,
         "GetTask" => handle_tasks_get(state, req.params.clone()).await,
         "CancelTask" => handle_tasks_cancel(state, req.params.clone()).await,
         "ListTasks" => handle_list_tasks(state, req.params.clone()).await,
         // SendStreamingMessage / SubscribeToTask handled above as SSE.
         // push-notif methods in Task 32; _shim/conversation/reset in Task 39.
-        // message/stream is special-cased above.
         other => Err(JsonRpcError {
             code: codes::METHOD_NOT_FOUND,
             message: format!("method not found: {other}"),
@@ -182,7 +196,40 @@ async fn dispatch(state: ServeState, req: &JsonRpcRequest<Value>) -> Result<Valu
     }
 }
 
-async fn handle_message_send(state: ServeState, params: Value) -> Result<Value, JsonRpcError> {
+/// Resolve effective caller_id with priority: header > metadata > config default.
+/// Returns None if caller_identity is disabled (no partitioning applied).
+pub(crate) fn resolve_caller_id(
+    cfg: &a2a_shim_core::config::serve_toml::CallerIdentityConfig,
+    header_caller: Option<&str>,
+    metadata_caller: Option<&str>,
+) -> Option<String> {
+    if !cfg.enabled {
+        return None;
+    }
+    if let Some(h) = header_caller {
+        return Some(h.to_string());
+    }
+    if let Some(m) = metadata_caller {
+        return Some(m.to_string());
+    }
+    Some(cfg.default_caller_id.clone())
+}
+
+/// Convert (caller_id, conversation_id) into the actual map key used by
+/// ConversationMap. When caller_id is None (feature disabled), the key
+/// is the conversation_id verbatim — preserving v0.1.0 behavior.
+pub(crate) fn partition_key(caller_id: Option<&str>, conversation_id: &str) -> String {
+    match caller_id {
+        Some(c) => format!("{c}\u{1f}{conversation_id}"),
+        None => conversation_id.to_string(),
+    }
+}
+
+async fn handle_message_send(
+    state: ServeState,
+    params: Value,
+    header_caller: Option<String>,
+) -> Result<Value, JsonRpcError> {
     let parsed: SendMessageParams = serde_json::from_value(params).map_err(invalid_params)?;
     let conv_id = parsed
         .message
@@ -198,23 +245,40 @@ async fn handle_message_send(state: ServeState, params: Value) -> Result<Value, 
             data: None,
         })?;
 
+    // Resolve effective caller_id; None when caller_identity is disabled.
+    let metadata_caller = parsed
+        .message
+        .metadata
+        .as_ref()
+        .and_then(|m| m.extra.get("x-a2a-shim/caller_id"))
+        .and_then(|v| v.as_str());
+    let caller_id = resolve_caller_id(
+        &state.cfg.server.caller_identity,
+        header_caller.as_deref(),
+        metadata_caller,
+    );
+    let conv_key = partition_key(caller_id.as_deref(), &conv_id);
+
     let acp = state.require_acp()?;
     let cwd = state.cfg.agent.cwd.clone();
 
     // Get-or-create the conversation. The closure runs at most once per
-    // conversation id; ConversationMap serializes new-session creation.
+    // conv_key; ConversationMap serializes new-session creation.
     let (conv, _created) = state
         .conversations
-        .get_or_create(&conv_id, || async {
-            let acp = Arc::clone(&acp);
-            let cwd: PathBuf = cwd;
-            // Map the AcpError into a String so NewError::Spawn carries
-            // something serde-friendly without leaking AcpError shape.
-            acp.session_new(cwd)
-                .await
-                .map(|sid| sid.0.as_ref().to_string())
-                .map_err(|e| e.to_string())
-        })
+        .get_or_create_with_meta(
+            &conv_key,
+            &cwd.display().to_string(),
+            caller_id.as_deref().unwrap_or("anonymous"),
+            || async {
+                let acp = Arc::clone(&acp);
+                let cwd: PathBuf = cwd;
+                acp.session_new(cwd)
+                    .await
+                    .map(|sid| sid.0.as_ref().to_string())
+                    .map_err(|e| e.to_string())
+            },
+        )
         .await
         .map_err(map_new_error)?;
 
@@ -223,7 +287,7 @@ async fn handle_message_send(state: ServeState, params: Value) -> Result<Value, 
     // failure halfway through.
     let _permit = state
         .conversations
-        .acquire_in_flight(&conv_id)
+        .acquire_in_flight(&conv_key)
         .await
         .map_err(map_acquire_error)?;
 
@@ -237,7 +301,7 @@ async fn handle_message_send(state: ServeState, params: Value) -> Result<Value, 
             .map_err(map_transition_error)?;
         existing_id
     } else {
-        state.tasks.create(&conv_id, &conv.acp_session_id).await
+        state.tasks.create(&conv_key, &conv.acp_session_id).await
     };
 
     // Translate inbound A2A Parts -> ACP ContentBlocks per ADR 0006.
@@ -424,11 +488,12 @@ use crate::sse_sink::SseFrame;
 async fn handle_message_stream(
     state: ServeState,
     req: JsonRpcRequest<Value>,
+    header_caller: Option<String>,
 ) -> axum::response::Response {
     if req.method == "SubscribeToTask" {
         return handle_subscribe_to_task(state, req).await;
     }
-    match prepare_prompt(state.clone(), req.params.clone()).await {
+    match prepare_prompt(state.clone(), req.params.clone(), header_caller).await {
         Ok(PromptHandle {
             task_id,
             sink,
@@ -511,7 +576,11 @@ struct PromptHandle {
     >,
 }
 
-async fn prepare_prompt(state: ServeState, params: Value) -> Result<PromptHandle, JsonRpcError> {
+async fn prepare_prompt(
+    state: ServeState,
+    params: Value,
+    header_caller: Option<String>,
+) -> Result<PromptHandle, JsonRpcError> {
     let parsed: SendMessageParams = serde_json::from_value(params).map_err(invalid_params)?;
     let conv_id = parsed
         .message
@@ -526,26 +595,43 @@ async fn prepare_prompt(state: ServeState, params: Value) -> Result<PromptHandle
             ),
             data: None,
         })?;
+    let metadata_caller = parsed
+        .message
+        .metadata
+        .as_ref()
+        .and_then(|m| m.extra.get("x-a2a-shim/caller_id"))
+        .and_then(|v| v.as_str());
+    let caller_id = resolve_caller_id(
+        &state.cfg.server.caller_identity,
+        header_caller.as_deref(),
+        metadata_caller,
+    );
+    let conv_key = partition_key(caller_id.as_deref(), &conv_id);
 
     let acp = state.require_acp()?;
     let cwd = state.cfg.agent.cwd.clone();
 
     let (conv, _created) = state
         .conversations
-        .get_or_create(&conv_id, || async {
-            let acp = Arc::clone(&acp);
-            let cwd: PathBuf = cwd;
-            acp.session_new(cwd)
-                .await
-                .map(|sid| sid.0.as_ref().to_string())
-                .map_err(|e| e.to_string())
-        })
+        .get_or_create_with_meta(
+            &conv_key,
+            &cwd.display().to_string(),
+            caller_id.as_deref().unwrap_or("anonymous"),
+            || async {
+                let acp = Arc::clone(&acp);
+                let cwd: PathBuf = cwd;
+                acp.session_new(cwd)
+                    .await
+                    .map(|sid| sid.0.as_ref().to_string())
+                    .map_err(|e| e.to_string())
+            },
+        )
         .await
         .map_err(map_new_error)?;
 
     let permit = state
         .conversations
-        .acquire_in_flight(&conv_id)
+        .acquire_in_flight(&conv_key)
         .await
         .map_err(map_acquire_error)?;
 
@@ -557,7 +643,7 @@ async fn prepare_prompt(state: ServeState, params: Value) -> Result<PromptHandle
             .map_err(map_transition_error)?;
         existing_id
     } else {
-        state.tasks.create(&conv_id, &conv.acp_session_id).await
+        state.tasks.create(&conv_key, &conv.acp_session_id).await
     };
 
     crate::translate::validate_parts(&parsed.message.parts, state.cfg.server.max_part_bytes)
