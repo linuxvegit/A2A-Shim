@@ -76,7 +76,14 @@ impl TaskBinding {
 
 #[derive(Clone, Default)]
 pub struct TaskRegistry {
-    inner: Arc<Mutex<HashMap<TaskId, TaskBinding>>>,
+    inner: Arc<Mutex<RegistryInner>>,
+}
+
+#[derive(Default)]
+struct RegistryInner {
+    bindings: HashMap<TaskId, TaskBinding>,
+    /// Insertion order. Used by `list` to give a stable cursor.
+    order: Vec<TaskId>,
 }
 
 impl TaskRegistry {
@@ -96,7 +103,9 @@ impl TaskRegistry {
             artifacts: Vec::new(),
             sink,
         };
-        self.inner.lock().insert(id.clone(), binding);
+        let mut inner = self.inner.lock();
+        inner.bindings.insert(id.clone(), binding);
+        inner.order.push(id.clone());
         id
     }
 
@@ -105,7 +114,7 @@ impl TaskRegistry {
     /// user-initiated cancels so the error mapping comes out right.
     pub async fn transition(&self, id: &TaskId, to: TaskState) -> Result<(), TransitionError> {
         let mut map = self.inner.lock();
-        let binding = map.get_mut(id).ok_or(TransitionError::NotFound)?;
+        let binding = map.bindings.get_mut(id).ok_or(TransitionError::NotFound)?;
         if !is_legal(binding.state, to) {
             return Err(TransitionError::Illegal);
         }
@@ -118,7 +127,7 @@ impl TaskRegistry {
     /// the Task moves back to `Working`.
     pub async fn accept_continuation(&self, id: &TaskId) -> Result<(), TransitionError> {
         let mut map = self.inner.lock();
-        let binding = map.get_mut(id).ok_or(TransitionError::NotFound)?;
+        let binding = map.bindings.get_mut(id).ok_or(TransitionError::NotFound)?;
         if binding.state != TaskState::InputRequired {
             return Err(TransitionError::InvalidContinuation);
         }
@@ -130,7 +139,7 @@ impl TaskRegistry {
     /// already terminal (spec maps to JSON-RPC -32002 TASK_NOT_CANCELABLE).
     pub async fn cancel(&self, id: &TaskId) -> Result<(), TransitionError> {
         let mut map = self.inner.lock();
-        let binding = map.get_mut(id).ok_or(TransitionError::NotFound)?;
+        let binding = map.bindings.get_mut(id).ok_or(TransitionError::NotFound)?;
         if binding.state.is_terminal() {
             return Err(TransitionError::NotCancelable);
         }
@@ -139,18 +148,18 @@ impl TaskRegistry {
     }
 
     pub async fn snapshot(&self, id: &TaskId) -> Option<Task> {
-        self.inner.lock().get(id).map(|b| b.snapshot(id))
+        self.inner.lock().bindings.get(id).map(|b| b.snapshot(id))
     }
 
     pub async fn sink(&self, id: &TaskId) -> Option<SseSink> {
-        self.inner.lock().get(id).map(|b| b.sink.clone())
+        self.inner.lock().bindings.get(id).map(|b| b.sink.clone())
     }
 
     /// Accessor used by the bridge to record the ACP session_id when
     /// turning incoming notifications into history/artifact updates.
     /// Returns None if the task is gone (e.g. swept).
     pub async fn acp_session_id(&self, id: &TaskId) -> Option<String> {
-        self.inner.lock().get(id).map(|b| b.acp_session_id.clone())
+        self.inner.lock().bindings.get(id).map(|b| b.acp_session_id.clone())
     }
 
     /// Append a Message to the task's history. Used by the bridge to
@@ -158,7 +167,7 @@ impl TaskRegistry {
     /// `tasks/get` returns a coherent transcript.
     pub async fn push_history(&self, id: &TaskId, m: Message) -> Result<(), TransitionError> {
         let mut map = self.inner.lock();
-        let binding = map.get_mut(id).ok_or(TransitionError::NotFound)?;
+        let binding = map.bindings.get_mut(id).ok_or(TransitionError::NotFound)?;
         binding.history.push(m);
         Ok(())
     }
@@ -171,7 +180,7 @@ impl TaskRegistry {
         artifact: Artifact,
     ) -> Result<Artifact, TransitionError> {
         let mut map = self.inner.lock();
-        let binding = map.get_mut(id).ok_or(TransitionError::NotFound)?;
+        let binding = map.bindings.get_mut(id).ok_or(TransitionError::NotFound)?;
         if let Some(existing_idx) = artifact.artifact_id.as_ref().and_then(|aid| {
             binding
                 .artifacts
@@ -187,6 +196,46 @@ impl TaskRegistry {
             binding.artifacts.push(artifact.clone());
             Ok(artifact)
         }
+    }
+
+    /// List Task snapshots in insertion order. `after` is the cursor:
+    /// returned snapshots are those whose insertion index is strictly
+    /// greater than the position of `after` (or all of them if `after`
+    /// is None). `limit` is capped at 1000 to bound response size; pass
+    /// 0 to use the default of 50 (spec A2A v1.0 § 9.4.4 leaves the
+    /// default to implementations).
+    ///
+    /// Returns `(tasks, next_cursor)` where `next_cursor` is `Some(id)`
+    /// of the last returned task if there are more, else `None`.
+    pub async fn list(
+        &self,
+        after: Option<&TaskId>,
+        limit: usize,
+    ) -> (Vec<Task>, Option<TaskId>) {
+        let effective_limit = if limit == 0 { 50 } else { limit.min(1000) };
+        let inner = self.inner.lock();
+        let start_idx = match after {
+            None => 0,
+            Some(cursor) => {
+                match inner.order.iter().position(|id| id == cursor) {
+                    Some(pos) => pos + 1,
+                    None => return (Vec::new(), None), // unknown cursor -> empty page
+                }
+            }
+        };
+        let end_idx = (start_idx + effective_limit).min(inner.order.len());
+        let mut tasks = Vec::with_capacity(end_idx - start_idx);
+        for id in &inner.order[start_idx..end_idx] {
+            if let Some(b) = inner.bindings.get(id) {
+                tasks.push(b.snapshot(id));
+            }
+        }
+        let next_cursor = if end_idx < inner.order.len() {
+            tasks.last().map(|t| t.id.clone())
+        } else {
+            None
+        };
+        (tasks, next_cursor)
     }
 }
 

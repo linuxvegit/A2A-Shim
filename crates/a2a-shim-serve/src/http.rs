@@ -17,7 +17,7 @@
 use a2a_shim_core::config::serve_toml::ServeConfig;
 use a2a_shim_core::error::codes;
 use a2a_shim_core::wire::envelope::{JsonRpcError, JsonRpcRequest, JsonRpcResponse, ResultOrError};
-use a2a_shim_core::wire::methods::{SendMessageParams, TaskIdParams};
+use a2a_shim_core::wire::methods::{ListTasksParams, SendMessageParams, TaskIdParams};
 use a2a_shim_core::wire::task::TaskId;
 use agent_client_protocol::schema::SessionId;
 use axum::{
@@ -146,9 +146,9 @@ async fn dispatch(state: ServeState, req: &JsonRpcRequest<Value>) -> Result<Valu
         "SendMessage" => handle_message_send(state, req.params.clone()).await,
         "GetTask" => handle_tasks_get(state, req.params.clone()).await,
         "CancelTask" => handle_tasks_cancel(state, req.params.clone()).await,
+        "ListTasks" => handle_list_tasks(state, req.params.clone()).await,
         // SendStreamingMessage / SubscribeToTask handled above as SSE.
-        // ListTasks lands in Task 6; push-notif methods in Task 32;
-        // _shim/conversation/reset in Task 39.
+        // push-notif methods in Task 32; _shim/conversation/reset in Task 39.
         // message/stream is special-cased above.
         other => Err(JsonRpcError {
             code: codes::METHOD_NOT_FOUND,
@@ -271,6 +271,17 @@ async fn handle_tasks_get(state: ServeState, params: Value) -> Result<Value, Jso
             data: None,
         })?;
     Ok(serde_json::to_value(snap).expect("Task serializes"))
+}
+
+async fn handle_list_tasks(state: ServeState, params: Value) -> Result<Value, JsonRpcError> {
+    let parsed: ListTasksParams = serde_json::from_value(params).map_err(invalid_params)?;
+    let after = parsed.page_token.map(TaskId::from);
+    let limit = parsed.page_size.unwrap_or(0);
+    let (tasks, next_cursor) = state.tasks.list(after.as_ref(), limit).await;
+    Ok(serde_json::json!({
+        "tasks": tasks,
+        "nextPageToken": next_cursor.as_ref().map(|c| c.as_str()),
+    }))
 }
 
 async fn handle_tasks_cancel(state: ServeState, params: Value) -> Result<Value, JsonRpcError> {

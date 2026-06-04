@@ -25,3 +25,14 @@ pub struct SendMessageParams {
 pub struct TaskIdParams {
     pub id: TaskId,
 }
+
+/// Parameters for A2A v1.0 § 9.4.4 `ListTasks`. Both fields optional.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ListTasksParams {
+    /// Maximum tasks to return in this page. 0 / missing => server default.
+    #[serde(default, rename = "pageSize", skip_serializing_if = "Option::is_none")]
+    pub page_size: Option<usize>,
+    /// Opaque cursor from a previous response's `nextPageToken`.
+    #[serde(default, rename = "pageToken", skip_serializing_if = "Option::is_none")]
+    pub page_token: Option<String>,
+}
