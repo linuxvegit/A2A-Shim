@@ -10,3 +10,10 @@ publish      = false
 [[bin]]
 name = "mock_acp_agent"
 path = "src/main.rs"
+
+[dependencies]
+agent-client-protocol = { workspace = true }
+tokio                 = { workspace = true }
+serde_json            = { workspace = true }
+clap                  = { workspace = true }
+anyhow                = { workspace = true }
