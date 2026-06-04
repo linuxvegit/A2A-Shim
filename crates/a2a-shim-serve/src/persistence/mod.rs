@@ -9,6 +9,7 @@
 //! Schema migrations live in `schema::ensure_current`, run once at
 //! startup. v1: 3 tables + _schema_version (see ADR 0007).
 
+pub mod recovery;
 pub mod schema;
 
 use parking_lot::Mutex;

@@ -225,4 +225,28 @@ impl ConversationMap {
     pub async fn get(&self, id: &str) -> Option<Arc<Conversation>> {
         self.inner.read().await.get(id).cloned()
     }
+
+    /// Insert a conversation that was reconstituted from persistence
+    /// (Task 24 recovery). Bypasses the spawn closure because the
+    /// `acp_session_id` already exists on the agent side. Does NOT
+    /// re-persist into SQLite — the row is already there.
+    ///
+    /// Returns `false` if the in-memory map already has the entry
+    /// (race against a concurrent inbound request) or capacity is full.
+    pub async fn insert_loaded(&self, id: &str, acp_session_id: String) -> bool {
+        let mut w = self.inner.write().await;
+        if w.contains_key(id) || (w.len() as u32) >= self.max_active {
+            return false;
+        }
+        let now = Instant::now();
+        let conv = Arc::new(Conversation {
+            id: id.to_string(),
+            acp_session_id,
+            created_at: now,
+            last_used_at: Mutex::new(now),
+            in_flight: Arc::new(AsyncMutex::new(())),
+        });
+        w.insert(id.to_string(), conv);
+        true
+    }
 }
