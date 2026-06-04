@@ -1,8 +1,15 @@
-//! A2A `Message`, `Part`, and `MessageMetadata` (spec § 4.4 + § 2.6).
+//! A2A v1.0 `Message`, `Part`, and `MessageMetadata` (spec § 4.4 + § 2.6;
+//! ADR 0005 wire upgrade).
 //!
-//! The conversation key is carried inside `metadata` rather than as a
-//! top-level field; ADR 0004 fixes the key string. Any unknown metadata
-//! keys are preserved on round-trip via `#[serde(flatten)]`.
+//! Discrimination by member presence (`#[serde(untagged)]`), no `type`
+//! tag. Field renames vs v0.x legacy:
+//!
+//!   File: `bytes` → `raw`, `mimeType` → `mediaType`,
+//!         `uri` → `url`, `name` → `filename`
+//!   Data: bare `data` becomes `{data, mediaType}` (mediaType REQUIRED in v1.0)
+//!
+//! Variant ordering matters: `Text` first so `{"text":"..."}` binds to
+//! Text and not as a malformed File missing its required `mediaType`.
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
@@ -14,44 +21,55 @@ pub enum MessageRole {
     Agent,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "camelCase")]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(untagged)]
 pub enum Part {
-    Text {
-        text: String,
-    },
-    File {
-        #[serde(skip_serializing_if = "Option::is_none")]
-        name: Option<String>,
-        #[serde(rename = "mimeType", skip_serializing_if = "Option::is_none")]
-        mime_type: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        bytes: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        uri: Option<String>,
-    },
+    /// Plain text. Bound when payload contains a `text` member.
+    /// MUST be first under `#[serde(untagged)]` so `{"text":"..."}` does
+    /// not accidentally bind to File (which has all-optional `raw`/`url`).
+    Text { text: String },
+    /// Structured data. Bound when payload contains a `data` member.
+    /// MUST come before File because File's required-only field
+    /// (`mediaType`) is also present here; without this ordering, an
+    /// `{"data":...,"mediaType":"..."}` payload would bind to File.
     Data {
         data: Value,
+        #[serde(rename = "mediaType")]
+        media_type: String,
+    },
+    /// Binary or referenced file. Bound when payload contains a
+    /// `mediaType` member and (`raw` OR `url`) but no `data` member.
+    File {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        raw: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        url: Option<String>,
+        #[serde(rename = "mediaType")]
+        media_type: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        filename: Option<String>,
     },
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 pub struct MessageMetadata {
-    /// `x-a2a-shim/conversation` — the conversation id binding A2A traffic
-    /// to one ACP session. Absent on initial sends; present after that.
+    /// `x-a2a-shim/conversation` — the conversation id binding A2A
+    /// traffic to one ACP session. Absent on initial sends; present
+    /// after that.
     #[serde(
         rename = "x-a2a-shim/conversation",
         default,
         skip_serializing_if = "Option::is_none"
     )]
     pub conversation: Option<String>,
-    /// Any other metadata keys are preserved verbatim across round-trips so
-    /// downstream consumers' extensions are not dropped silently.
+    /// Any other metadata keys are preserved verbatim across
+    /// round-trips so downstream consumers' extensions are not dropped
+    /// silently.
     #[serde(flatten)]
     pub extra: Map<String, Value>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Message {
     pub role: MessageRole,
     pub parts: Vec<Part>,

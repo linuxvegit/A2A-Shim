@@ -61,10 +61,16 @@ implications:
    }
    ```
 
-   Order matters under `#[serde(untagged)]`: `Text` must come before
-   `File`/`Data` so a `{"text":"..."}` payload binds to `Text` (the only
-   variant with a `text` member) and not as a `File` whose required
-   `mediaType` is missing.
+   Order matters under `#[serde(untagged)]`:
+   - **`Text` first** so a `{"text":"..."}` payload binds to `Text` (the
+     only variant with a `text` member) and not as a `File` whose
+     required `mediaType` is missing.
+   - **`Data` before `File`** so a `{"data":...,"mediaType":"..."}`
+     payload binds to `Data` and not as a `File` (whose `raw`/`url`
+     are both optional, leaving `mediaType` as its only required
+     field — which `Data` also has). Discovered during Task 2 impl;
+     captured in tests/message_roundtrip.rs::discrimination_text_first_under_untagged.
+   - Final ordering: `Text`, `Data`, `File`.
 
 3. **SSE event wrappers.** `a2a_shim_core::wire::sse::SseEvent`
    re-shapes to:
