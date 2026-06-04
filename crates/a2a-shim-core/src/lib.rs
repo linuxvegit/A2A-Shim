@@ -9,3 +9,4 @@ pub mod wire;
 pub mod error;
 pub mod timeout;
 pub mod config;
+pub mod logging;

@@ -1374,8 +1374,8 @@ fn options_default_to_stderr_compact_info() {
 
 #[test]
 fn init_idempotent_no_panic() {
-    let _ = a2a_shim_core::logging::try_init(LoggingOptions::default());
-    let _ = a2a_shim_core::logging::try_init(LoggingOptions::default());
+    try_init_idempotent(LoggingOptions::default()).expect("first init");
+    try_init_idempotent(LoggingOptions::default()).expect("second init must be ok");
 }
 ```
 
@@ -1388,7 +1388,8 @@ fn init_idempotent_no_panic() {
 //! transport). Use Stderr or File destinations.
 
 use std::path::PathBuf;
-use std::sync::OnceLock;
+// No OnceLock: idempotency is delegated to tracing_subscriber::try_init,
+// which returns Err(_) if a global subscriber is already installed.
 use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 
 #[derive(Debug, Clone)]
@@ -1400,11 +1401,12 @@ impl Default for LoggingOptions {
 #[derive(Debug, Clone, Copy)] pub enum LogFormat { Compact, Json, Pretty }
 #[derive(Debug, Clone)]       pub enum LogDestination { Stderr, File(PathBuf) }
 
-static INIT: OnceLock<()> = OnceLock::new();
+// (No INIT cell — see comment above.)
 
+/// Strict: returns Err(AlreadyInit) on the second call.
 pub fn try_init(opts: LoggingOptions) -> Result<(), TracingInitError> {
-    if INIT.get().is_some() { return Ok(()); }
-    let filter = EnvFilter::try_new(&opts.level).map_err(|e| TracingInitError::Filter(e.to_string()))?;
+    let filter = EnvFilter::try_new(&opts.level)
+        .map_err(|e| TracingInitError::Filter(e.to_string()))?;
     let writer = match &opts.destination {
         LogDestination::Stderr => BoxedWriter::Stderr,
         LogDestination::File(p) => {
@@ -1420,9 +1422,15 @@ pub fn try_init(opts: LoggingOptions) -> Result<(), TracingInitError> {
         LogFormat::Json    => reg.with(layer.json()).try_init(),
         LogFormat::Pretty  => reg.with(layer.pretty()).try_init(),
     };
-    r.map_err(|e| TracingInitError::AlreadyInit(e.to_string()))?;
-    let _ = INIT.set(());
-    Ok(())
+    r.map_err(|e| TracingInitError::AlreadyInit(e.to_string()))
+}
+
+/// Idempotent: maps AlreadyInit -> Ok(()). For tests + multi-call paths.
+pub fn try_init_idempotent(opts: LoggingOptions) -> Result<(), TracingInitError> {
+    match try_init(opts) {
+        Ok(()) | Err(TracingInitError::AlreadyInit(_)) => Ok(()),
+        Err(e) => Err(e),
+    }
 }
 
 #[derive(Debug, thiserror::Error)]
