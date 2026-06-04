@@ -13,3 +13,4 @@ pub mod run;
 pub mod sse_sink;
 pub mod task_registry;
 pub mod translate;
+pub mod persistence;
