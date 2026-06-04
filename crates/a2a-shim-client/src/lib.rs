@@ -5,3 +5,4 @@
 pub mod tool_schema;
 pub mod mcp_server;
 pub mod outbound;
+pub mod heartbeat;
