@@ -85,13 +85,14 @@ impl ConversationMap {
 
     /// Returns `(conversation, created)` where `created = true` means the
     /// spawn closure was invoked and the entry is fresh.
-    pub async fn get_or_create<F, E>(
+    pub async fn get_or_create<F, Fut, E>(
         &self,
         id: &str,
         spawn: F,
     ) -> Result<(Arc<Conversation>, bool), NewError<E>>
     where
-        F: FnOnce() -> Result<SessionId, E>,
+        F: FnOnce() -> Fut,
+        Fut: std::future::Future<Output = Result<SessionId, E>>,
     {
         // Fast path: read lock.
         {
@@ -104,6 +105,14 @@ impl ConversationMap {
 
         // Slow path: write lock. Re-check under the write lock to absorb
         // any race where two callers raced through the read-lock arm.
+        //
+        // Note: the spawn future runs WHILE THE WRITE LOCK IS HELD. That
+        // serializes new-session creation across conversations, which is
+        // exactly what we want — it bounds the concurrent subprocess /
+        // session_new pressure on the ACP Agent. If this ever becomes a
+        // bottleneck we can insert a pending-id placeholder map keyed on
+        // id, release the write lock for the spawn, then re-acquire to
+        // commit. Not needed in MVP.
         let mut w = self.inner.write().await;
         if let Some(conv) = w.get(id) {
             *conv.last_used_at.lock() = Instant::now();
@@ -113,7 +122,7 @@ impl ConversationMap {
             return Err(NewError::LimitReached);
         }
 
-        let session_id = spawn().map_err(NewError::Spawn)?;
+        let session_id = spawn().await.map_err(NewError::Spawn)?;
         let now = Instant::now();
         let conv = Arc::new(Conversation {
             id: id.to_string(),

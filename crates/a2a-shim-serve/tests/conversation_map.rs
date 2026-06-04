@@ -5,7 +5,7 @@ use std::time::Duration;
 async fn first_sight_creates_returns_session() {
     let map = ConversationMap::new(8, Duration::from_secs(3600));
     let (conv, created) = map
-        .get_or_create("alice/review", || Ok::<_, ()>("sess-1".into()))
+        .get_or_create("alice/review", || async { Ok::<_, ()>("sess-1".into()) })
         .await
         .unwrap();
     assert!(created);
@@ -16,13 +16,13 @@ async fn first_sight_creates_returns_session() {
 #[tokio::test]
 async fn second_sight_reuses_without_calling_spawn() {
     let map = ConversationMap::new(8, Duration::from_secs(3600));
-    map.get_or_create("c", || Ok::<_, ()>("s1".into()))
+    map.get_or_create("c", || async { Ok::<_, ()>("s1".into()) })
         .await
         .unwrap();
 
     let mut spawned = false;
     let (conv, created) = map
-        .get_or_create("c", || {
+        .get_or_create("c", || async {
             spawned = true;
             Ok::<_, ()>("s2".into())
         })
@@ -37,14 +37,14 @@ async fn second_sight_reuses_without_calling_spawn() {
 #[tokio::test]
 async fn max_active_rejects_third() {
     let map = ConversationMap::new(2, Duration::from_secs(3600));
-    map.get_or_create("a", || Ok::<_, ()>("s".into()))
+    map.get_or_create("a", || async { Ok::<_, ()>("s".into()) })
         .await
         .unwrap();
-    map.get_or_create("b", || Ok::<_, ()>("s".into()))
+    map.get_or_create("b", || async { Ok::<_, ()>("s".into()) })
         .await
         .unwrap();
     let err = map
-        .get_or_create("c", || Ok::<_, ()>("s".into()))
+        .get_or_create("c", || async { Ok::<_, ()>("s".into()) })
         .await
         .unwrap_err();
     assert!(matches!(err, NewError::LimitReached));
@@ -53,7 +53,7 @@ async fn max_active_rejects_third() {
 #[tokio::test]
 async fn busy_guard_rejects_overlap_then_releases() {
     let map = ConversationMap::new(8, Duration::from_secs(3600));
-    map.get_or_create("c", || Ok::<_, ()>("s1".into()))
+    map.get_or_create("c", || async { Ok::<_, ()>("s1".into()) })
         .await
         .unwrap();
 
@@ -75,7 +75,7 @@ async fn acquire_unknown_id_is_not_found() {
 #[tokio::test(start_paused = true)]
 async fn idle_sweep_drops_old_entries() {
     let map = ConversationMap::new(8, Duration::from_secs(2));
-    map.get_or_create("c", || Ok::<_, ()>("s".into()))
+    map.get_or_create("c", || async { Ok::<_, ()>("s".into()) })
         .await
         .unwrap();
     tokio::time::advance(Duration::from_secs(5)).await;
@@ -88,7 +88,7 @@ async fn idle_sweep_drops_old_entries() {
 #[tokio::test(start_paused = true)]
 async fn idle_sweep_keeps_fresh_entries() {
     let map = ConversationMap::new(8, Duration::from_secs(2));
-    map.get_or_create("fresh", || Ok::<_, ()>("s".into()))
+    map.get_or_create("fresh", || async { Ok::<_, ()>("s".into()) })
         .await
         .unwrap();
     tokio::time::advance(Duration::from_millis(500)).await;
