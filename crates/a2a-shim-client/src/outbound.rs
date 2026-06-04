@@ -169,7 +169,7 @@ fn build_request_body(
     json!({
         "jsonrpc": "2.0",
         "id": 1,
-        "method": "message/stream",
+        "method": "SendStreamingMessage",
         "params": Value::Object(params),
     })
 }

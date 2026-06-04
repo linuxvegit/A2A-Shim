@@ -96,7 +96,7 @@ cwd = "{}"
     let body = json!({
         "jsonrpc": "2.0",
         "id": 1,
-        "method": "message/send",
+        "method": "SendMessage",
         "params": {
             "message": {
                 "role": "user",

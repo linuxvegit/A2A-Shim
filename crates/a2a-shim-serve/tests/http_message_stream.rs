@@ -70,7 +70,7 @@ async fn message_stream_emits_working_artifact_completed() {
     let body = json!({
         "jsonrpc": "2.0",
         "id": 1,
-        "method": "message/stream",
+        "method": "SendStreamingMessage",
         "params": {
             "message": {
                 "role": "user",
@@ -158,7 +158,7 @@ async fn message_stream_without_conversation_metadata_returns_400_or_error_frame
     let body = json!({
         "jsonrpc": "2.0",
         "id": 1,
-        "method": "message/stream",
+        "method": "SendStreamingMessage",
         "params": {
             "message": {
                 "role": "user",

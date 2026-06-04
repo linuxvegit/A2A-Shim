@@ -101,11 +101,7 @@ fn send_params(conv_id: &str, text: &str) -> Value {
 #[tokio::test]
 async fn message_send_happy_returns_completed_task() {
     let addr = start_server(cfg(8), fresh_client().await).await;
-    let resp = rpc(
-        addr,
-        "message/send",
-        send_params("alice/test", "what is 2+2?"),
-    )
+    let resp = rpc(addr, "SendMessage", send_params("alice/test", "what is 2+2?"))
     .await;
     let task = &resp["result"];
     assert_eq!(task["status"]["state"], "completed", "got: {resp}");
@@ -124,24 +120,24 @@ async fn message_send_without_conversation_metadata_is_invalid_params() {
             // metadata field omitted entirely
         }
     });
-    let resp = rpc(addr, "message/send", bad).await;
+    let resp = rpc(addr, "SendMessage", bad).await;
     assert_eq!(resp["error"]["code"], codes::INVALID_PARAMS, "got: {resp}");
 }
 
 #[tokio::test]
 async fn tasks_get_unknown_id_returns_task_not_found() {
     let addr = start_server(cfg(8), fresh_client().await).await;
-    let resp = rpc(addr, "tasks/get", json!({ "id": "t-does-not-exist" })).await;
+    let resp = rpc(addr, "GetTask", json!({ "id": "t-does-not-exist" })).await;
     assert_eq!(resp["error"]["code"], codes::TASK_NOT_FOUND);
 }
 
 #[tokio::test]
 async fn tasks_cancel_after_completed_is_not_cancelable() {
     let addr = start_server(cfg(8), fresh_client().await).await;
-    let send = rpc(addr, "message/send", send_params("c/cancel", "2+2")).await;
+    let send = rpc(addr, "SendMessage", send_params("c/cancel", "2+2")).await;
     let task_id = send["result"]["id"].as_str().unwrap().to_string();
 
-    let resp = rpc(addr, "tasks/cancel", json!({ "id": task_id })).await;
+    let resp = rpc(addr, "CancelTask", json!({ "id": task_id })).await;
     assert_eq!(
         resp["error"]["code"],
         codes::TASK_NOT_CANCELABLE,
@@ -152,7 +148,7 @@ async fn tasks_cancel_after_completed_is_not_cancelable() {
 #[tokio::test]
 async fn unknown_method_is_method_not_found() {
     let addr = start_server(cfg(8), fresh_client().await).await;
-    let resp = rpc(addr, "frobnicate", json!({})).await;
+    let resp = rpc(addr, "Frobnicate", json!({})).await;
     assert_eq!(resp["error"]["code"], codes::METHOD_NOT_FOUND);
 }
 
@@ -161,8 +157,8 @@ async fn message_send_over_max_active_returns_conversation_limit_reached() {
     // max_active = 1; the first send creates conversation "a"; the second
     // send under a different conversation id "b" must trip the limit.
     let addr = start_server(cfg(1), fresh_client().await).await;
-    rpc(addr, "message/send", send_params("a/x", "go")).await; // creates "a"
-    let resp = rpc(addr, "message/send", send_params("b/x", "go")).await;
+    rpc(addr, "SendMessage", send_params("a/x", "go")).await; // creates "a"
+    let resp = rpc(addr, "SendMessage", send_params("b/x", "go")).await;
     assert_eq!(
         resp["error"]["code"],
         codes::CONVERSATION_LIMIT_REACHED,

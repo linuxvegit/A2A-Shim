@@ -121,7 +121,7 @@ async fn jsonrpc_root(
 ) -> axum::response::Response {
     // message/stream needs to return an SSE body, not JSON. All other
     // methods route through the JSON dispatch + envelope path.
-    if req.method == "message/stream" {
+    if req.method == "SendStreamingMessage" || req.method == "SubscribeToTask" {
         return handle_message_stream(state, req).await;
     }
     let id = req.id.clone();
@@ -143,9 +143,12 @@ async fn jsonrpc_root(
 
 async fn dispatch(state: ServeState, req: &JsonRpcRequest<Value>) -> Result<Value, JsonRpcError> {
     match req.method.as_str() {
-        "message/send" => handle_message_send(state, req.params.clone()).await,
-        "tasks/get" => handle_tasks_get(state, req.params.clone()).await,
-        "tasks/cancel" => handle_tasks_cancel(state, req.params.clone()).await,
+        "SendMessage" => handle_message_send(state, req.params.clone()).await,
+        "GetTask" => handle_tasks_get(state, req.params.clone()).await,
+        "CancelTask" => handle_tasks_cancel(state, req.params.clone()).await,
+        // SendStreamingMessage / SubscribeToTask handled above as SSE.
+        // ListTasks lands in Task 6; push-notif methods in Task 32;
+        // _shim/conversation/reset in Task 39.
         // message/stream is special-cased above.
         other => Err(JsonRpcError {
             code: codes::METHOD_NOT_FOUND,
