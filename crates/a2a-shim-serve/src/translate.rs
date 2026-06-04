@@ -230,3 +230,39 @@ fn derive_link_name(url: &str) -> String {
         .unwrap_or(url)
         .to_string()
 }
+
+/// Per-Part size validation (ADR 0006 / spec § 2 --max-part-bytes).
+/// Returns the offending part index + its measured size if any Part's
+/// raw/data/text payload exceeds `max_bytes`. Filename / mediaType /
+/// metadata are NOT counted — only the actual content bytes.
+pub fn validate_parts(parts: &[Part], max_bytes: usize) -> Result<(), PartTooLargeError> {
+    for (i, p) in parts.iter().enumerate() {
+        let size = part_payload_size(p);
+        if size > max_bytes {
+            return Err(PartTooLargeError {
+                index: i,
+                size,
+                max: max_bytes,
+            });
+        }
+    }
+    Ok(())
+}
+
+fn part_payload_size(p: &Part) -> usize {
+    match p {
+        Part::Text { text } => text.len(),
+        Part::File { raw: Some(raw), .. } => raw.len(),
+        Part::File { url: Some(url), .. } => url.len(),
+        Part::File { .. } => 0,
+        Part::Data { data, .. } => data.to_string().len(),
+    }
+}
+
+#[derive(Debug, Clone, thiserror::Error)]
+#[error("part {index} too large: {size} bytes exceeds --max-part-bytes={max}")]
+pub struct PartTooLargeError {
+    pub index: usize,
+    pub size: usize,
+    pub max: usize,
+}

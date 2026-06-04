@@ -40,6 +40,9 @@ pub struct ServerConfig {
     pub advertised_endpoint: Option<String>,
     #[serde(default = "d_card_path")]
     pub agent_card_path: String,
+    /// Per-Part body cap in bytes (ADR 0006). Default 10 MiB.
+    #[serde(default = "d_max_part_bytes")]
+    pub max_part_bytes: usize,
     #[serde(default)]
     pub conversations: ConversationsConfig,
 }
@@ -50,6 +53,7 @@ impl Default for ServerConfig {
             advertised_endpoint: None,
             agent_card_path: d_card_path(),
             conversations: Default::default(),
+            max_part_bytes: d_max_part_bytes(),
         }
     }
 }
@@ -174,6 +178,9 @@ fn d_idle_secs() -> u64 {
 }
 fn d_max_active() -> u32 {
     64
+}
+fn d_max_part_bytes() -> usize {
+    10 * 1024 * 1024 // 10 MiB
 }
 fn d_card_name() -> String {
     "a2a-shim-serve".into()

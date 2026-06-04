@@ -221,6 +221,12 @@ async fn handle_message_send(state: ServeState, params: Value) -> Result<Value, 
     // initialize response wires through in v1.2. Today: Text + ResourceLink
     // always pass; Image/Audio/EmbeddedResource/Data require caps=on
     // (none today) and drop with a tracing warn.
+    crate::translate::validate_parts(&parsed.message.parts, state.cfg.server.max_part_bytes)
+        .map_err(|e| JsonRpcError {
+            code: codes::INVALID_PARAMS,
+            message: format!("{e}"),
+            data: None,
+        })?;
     let caps = crate::translate::PartCaps::default();
     let content = crate::translate::a2a_to_acp(&parsed.message.parts, &caps);
 
@@ -530,6 +536,12 @@ async fn prepare_prompt(state: ServeState, params: Value) -> Result<PromptHandle
         state.tasks.create(&conv_id, &conv.acp_session_id).await
     };
 
+    crate::translate::validate_parts(&parsed.message.parts, state.cfg.server.max_part_bytes)
+        .map_err(|e| JsonRpcError {
+            code: codes::INVALID_PARAMS,
+            message: format!("{e}"),
+            data: None,
+        })?;
     let caps = crate::translate::PartCaps::default();
     let content = crate::translate::a2a_to_acp(&parsed.message.parts, &caps);
 
