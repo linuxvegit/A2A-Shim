@@ -21,7 +21,9 @@ futures            = { workspace = true }
 bytes              = { workspace = true }
 parking_lot        = { workspace = true }
 tokio-stream       = { workspace = true }
+async-stream       = "0.3"
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util", "macros", "rt-multi-thread"] }
 wiremock = "0.6"
+axum = { workspace = true }
